@@ -6,6 +6,7 @@ from sqlalchemy.ext.asyncio import create_async_engine
 from messenger.infrastructure.attachments import PostgresAttachments
 from messenger.infrastructure.chats import PostgresChatAccess
 from messenger.infrastructure.messages import PostgresMessages
+from messenger.infrastructure.outbox import PostgresOutbox
 from messenger.infrastructure.polls import PostgresBallots
 
 DATABASE_URL = os.getenv('DATABASE_URL', 'postgresql+asyncpg://chat:chat@localhost:5432/chat')
@@ -13,6 +14,7 @@ DATABASE_URL = os.getenv('DATABASE_URL', 'postgresql+asyncpg://chat:chat@localho
 class PostgresTransaction:
     def __init__(self, connection):
         self.connection = connection
+        self.outbox = PostgresOutbox(self)
         self.chat_access = PostgresChatAccess(self)
         self.attachments = PostgresAttachments(self)
         self.messages = PostgresMessages(self)

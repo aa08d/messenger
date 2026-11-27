@@ -1,8 +1,8 @@
 import json
 
 from messenger.application.messages.queries import VISIBLE
-from messenger.domain.common import ApplicationError
-from messenger.domain.identity import MessageId, UserId
+from messenger.domain.messages.exceptions import MessageUnavailable
+from messenger.domain.common.value_objects.identity import MessageId, UserId
 from messenger.domain.media import AttachmentMetadata, MediaContent, MediaKind
 from messenger.domain.messages import Message, MessageText, PollContent
 from messenger.domain.polls import PollDefinition
@@ -71,7 +71,7 @@ class PostgresMessages:
             JOIN members me ON me.chat_id=c.id AND me.user_id=:uid
             WHERE c.id=:cid AND m.seq=:seq AND {VISIBLE}''', **key(message_id), uid=viewer.value)
         if not row:
-            raise ApplicationError(404, 'Сообщение недоступно')
+            raise MessageUnavailable()
         return decode_message(message_id, row)
 
     async def add(self, message, request, digest):

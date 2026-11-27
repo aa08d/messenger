@@ -1,7 +1,7 @@
 import asyncio
 import logging
 
-from messenger.infrastructure.events import relay
+from messenger.infrastructure.outbox.relay import relay
 
 if __name__ == '__main__':
     logging.basicConfig(level=logging.INFO)

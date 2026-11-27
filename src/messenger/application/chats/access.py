@@ -1,4 +1,4 @@
-from messenger.domain.identity import ChatId, UserId
+from messenger.domain.common.value_objects.identity import ChatId, UserId
 
 
 async def access(tx, uid, cid, lock=False):

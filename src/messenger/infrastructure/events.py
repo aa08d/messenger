@@ -61,27 +61,6 @@ async def broker():
         })
     return connection, channel, main
 
-async def relay():
-    db = Postgres()
-    connection, channel, main = await broker()
-    async with connection:
-        while True:
-            try:
-                async with db.transaction() as tx:
-                    rows = await tx.all('SELECT id,recipients FROM outbox ORDER BY id LIMIT 50 FOR UPDATE SKIP LOCKED')
-                    for row in rows:
-                        await channel.default_exchange.publish(
-                            aio_pika.Message(json.dumps([str(person) for person in row['recipients']]).encode(),
-                                             delivery_mode=aio_pika.DeliveryMode.PERSISTENT),
-                            routing_key=main.name, mandatory=True, timeout=5,
-                        )
-                        await tx.execute('DELETE FROM outbox WHERE id=:id', id=row['id'])
-                if not rows:
-                    await asyncio.sleep(0.2)
-            except Exception:
-                LOG.exception('Outbox relay will retry')
-                await asyncio.sleep(2)
-
 async def consumer():
     db = Postgres()
     connection, channel, queue = await broker()
@@ -97,7 +76,8 @@ async def consumer():
             except Exception:
                 attempt = int(message.headers.get('attempt', 0)) + 1
                 await channel.default_exchange.publish(
-                    aio_pika.Message(message.body, headers={'attempt': attempt},
+                    aio_pika.Message(message.body, headers={**message.headers, 'attempt': attempt},
+                                     message_id=message.message_id, type=message.type,
                                      delivery_mode=aio_pika.DeliveryMode.PERSISTENT),
                     routing_key=f'contour.retry.{attempt}' if attempt <= 2 else 'contour.dead',
                     mandatory=True, timeout=5,

@@ -1,12 +1,10 @@
-from dataclasses import replace
-
 from messenger.application.chats.access import access
-from messenger.application.outbox import changed
+from messenger.application.events import publish_events
 from messenger.application.ports import UnitOfWork
-from messenger.domain.common import ApplicationError
-from messenger.domain.identity import ChatId, MessageId, UserId
+from messenger.domain.common.value_objects.identity import ChatId, MessageId, UserId
 from messenger.domain.messages import PollContent
 from messenger.domain.polls import Ballot, Poll
+from messenger.domain.polls.exceptions import NotAPoll, PollAuthorRequired, PollUnavailable
 
 
 class Polls:
@@ -20,12 +18,12 @@ class Polls:
             message = await tx.messages.visible(MessageId(ChatId(cid), seq), actor)
             content = message.content
             if not isinstance(content, PollContent):
-                raise ApplicationError(409, 'Голосование недоступно')
+                raise PollUnavailable()
             poll = Poll(message.id, message.author, content.definition, content.closed)
             ballot = Ballot(tuple(options))
-            poll.validate_ballot(ballot)
+            poll.change_ballot(ballot)
             await tx.ballots.record(poll.id, actor, ballot)
-            await changed(tx, cid)
+            await publish_events(tx.outbox, poll)
 
     async def close(self, uid, cid, seq):
         async with self.db.transaction() as tx:
@@ -34,9 +32,11 @@ class Polls:
             message = await tx.messages.visible(MessageId(ChatId(cid), seq), actor)
             content = message.content
             if message.author != actor:
-                raise ApplicationError(403, 'Действие доступно автору')
+                raise PollAuthorRequired()
             if not isinstance(content, PollContent):
-                raise ApplicationError(422, 'Действие не подходит для этого сообщения')
-            poll = Poll(message.id, message.author, content.definition, content.closed).close(actor)
-            await tx.messages.update_content(replace(message, content=PollContent(poll.definition, poll.closed)))
-            await changed(tx, cid)
+                raise NotAPoll()
+            poll = Poll(message.id, message.author, content.definition, content.closed)
+            poll.close(actor)
+            message.content = PollContent(poll.definition, poll.closed)
+            await tx.messages.update_content(message)
+            await publish_events(tx.outbox, poll)

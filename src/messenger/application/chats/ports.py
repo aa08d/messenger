@@ -1,7 +1,7 @@
 from typing import Protocol
 
 from messenger.domain.chats import Chat, Membership
-from messenger.domain.identity import ChatId, UserId
+from messenger.domain.common.value_objects.identity import ChatId, UserId
 
 
 class ChatAccess(Protocol):

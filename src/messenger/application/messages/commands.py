@@ -2,12 +2,13 @@ import hashlib
 import json
 
 from messenger.application.chats.access import access
-from messenger.application.outbox import changed
+from messenger.application.events import publish_events
 from messenger.application.ports import UnitOfWork
 from messenger.domain.common import ApplicationError
-from messenger.domain.identity import ChatId, MessageId, UserId
+from messenger.domain.common.value_objects.identity import ChatId, MessageId, UserId
 from messenger.domain.media import MEDIA, Attachment, MediaContent, MediaKind
 from messenger.domain.messages import Message, MessageText, PollContent, Reaction
+from messenger.domain.messages.exceptions import RequestIdConflict
 from messenger.domain.polls import PollDefinition
 
 
@@ -25,7 +26,7 @@ async def prior_message(repository, cid, uid, request, digest):
     if found is not None:
         seq, previous_digest = found
         if previous_digest not in {None, digest}:
-            raise ApplicationError(409, 'Этот идентификатор уже использован для другого сообщения')
+            raise RequestIdConflict()
         return {'seq': seq}
     return None
 
@@ -63,7 +64,7 @@ class Messages:
             reply_to = MessageId(chat_id, reply) if reply is not None else None
             if reply_to:
                 await tx.messages.visible(reply_to, actor)
-            message = Message(chat.next_message_id(), actor, content, reply_to)
+            message = Message.create(chat.next_message_id(), actor, content, reply_to)
             return await self.store(tx, message, request, digest, upload)
 
     async def store(self, tx, message, request, digest, attachment):
@@ -71,7 +72,7 @@ class Messages:
         cid, seq = message.id.chat_id.value, message.id.seq
         if attachment:
             await tx.attachments.add(message.id, attachment)
-        await changed(tx, cid)
+        await publish_events(tx.outbox, message)
         return {'seq': seq}
 
     async def forward(self, uid, cid, source, seq, request):
@@ -90,7 +91,7 @@ class Messages:
             content = original.forward_content()
             Message.publish(content, member)
             attachment = await tx.attachments.get(original.id) if isinstance(content, MediaContent) else None
-            message = Message(target.next_message_id(), actor, content, forwarded=True)
+            message = Message.create(target.next_message_id(), actor, content, forwarded=True)
             return await self.store(tx, message, request, digest, attachment)
 
     async def message_action(self, uid, cid, seq, action, data):
@@ -101,16 +102,20 @@ class Messages:
             message = await tx.messages.visible(message_id, actor)
             direct = chat.direct
             if action == 'hide':
+                message.hide(actor)
                 await tx.messages.hide(message_id, actor)
             elif action == 'delete':
-                message.authorize_deletion(actor, member, direct=direct)
+                message.delete(actor, member, direct=direct)
                 await tx.messages.delete(message_id)
             elif action == 'pin':
-                await tx.messages.update_pin(message.pin(data.flag, member, direct=direct))
+                message.pin(data.flag, member, direct=direct)
+                await tx.messages.update_pin(message)
             elif action == 'edit':
-                await tx.messages.update_content(message.edit(actor, data.text, member))
+                message.edit(actor, data.text, member)
+                await tx.messages.update_content(message)
             elif action == 'react':
                 await tx.messages.react(message_id, actor, Reaction(data.text) if data.text else None)
+                message.record_reaction_change()
             else:
                 raise ApplicationError(422, 'Неизвестное действие')
-            await changed(tx, cid, only=uid if action == 'hide' else None)
+            await publish_events(tx.outbox, message)

@@ -1,5 +1,5 @@
 from messenger.domain.chats import Chat, ChatTitle, Membership, Permissions, Role
-from messenger.domain.common import ApplicationError
+from messenger.domain.chats.exceptions import ChatUnavailable
 
 
 class PostgresChatAccess:
@@ -16,7 +16,7 @@ class PostgresChatAccess:
             **keys,
         )
         if not row:
-            raise ApplicationError(404, 'Чат недоступен')
+            raise ChatUnavailable()
         defaults = Permissions.from_mapping(row['permissions'])
         direct_key = row['direct_key']
         chat = Chat(

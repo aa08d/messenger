@@ -1,7 +1,7 @@
 from typing import Protocol
 from uuid import UUID
 
-from messenger.domain.identity import ChatId, MessageId, UserId
+from messenger.domain.common.value_objects.identity import ChatId, MessageId, UserId
 from messenger.domain.messages import Message, Reaction
 
 

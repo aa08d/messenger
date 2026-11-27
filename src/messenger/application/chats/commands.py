@@ -4,10 +4,10 @@ import secrets
 from uuid import uuid4
 
 from messenger.application.chats.access import access
-from messenger.application.outbox import changed
+from messenger.application.events import publish_events
 from messenger.application.ports import UnitOfWork
 from messenger.domain.chats import ChatTitle, Role, permission_map
-from messenger.domain.identity import UserId
+from messenger.domain.common.value_objects.identity import UserId
 from messenger.domain.common import ApplicationError
 
 
@@ -46,7 +46,9 @@ class Chats:
                 )
             await tx.execute('UPDATE members SET archived=false WHERE chat_id=:cid AND user_id=:uid',
                              cid=row['id'], uid=uid)
-            await changed(tx, row['id'])
+            chat, _ = await access(tx, uid, row['id'])
+            chat.mark_opened()
+            await publish_events(tx.outbox, chat)
             return {'id': row['id']}
 
     async def chat_action(self, uid, cid, action, data):
@@ -60,11 +62,13 @@ class Chats:
                     AND seen<:seq RETURNING seen''', seq=seq, **keys)
                 if updated is None:
                     return
+                chat.mark_read(updated['seen'])
             elif action == 'clear':
+                chat.clear_history(UserId(uid), role, for_everyone=False)
                 await tx.execute('''UPDATE members SET hidden=:head,seen=GREATEST(seen,:head),archived=true
                     WHERE chat_id=:cid AND user_id=:uid''', **keys)
             elif action == 'revoke':
-                chat.authorize_history_revocation(role)
+                chat.clear_history(UserId(uid), role, for_everyone=True)
                 await tx.execute('UPDATE chats SET cleared=:head WHERE id=:cid', **keys)
                 await tx.execute('UPDATE members SET archived=true,seen=GREATEST(seen,:head) WHERE chat_id=:cid', **keys)
                 for table in ('attachments','votes','reactions'):
@@ -72,10 +76,14 @@ class Chats:
                 await tx.execute("UPDATE messages SET body='{}',deleted=true,pinned=false WHERE chat_id=:cid AND seq<=:head", **keys)
             elif group:
                 await self.group_action(tx, role, keys, action, data)
+                if action in {'rename', 'defaults'}:
+                    chat.mark_settings_changed(action)
+                else:
+                    removed = uid if action == 'leave' else data.user_id if action == 'remove' else None
+                    chat.mark_membership_changed(action, former_member=UserId(removed) if removed else None)
             else:
                 raise ApplicationError(422, 'Действие доступно в группе')
-            await changed(tx, cid, only=uid if action == 'clear' else None,
-                          include=uid if action == 'leave' else data.user_id if action == 'remove' else None)
+            await publish_events(tx.outbox, chat)
 
     async def invite_link(self, uid, cid, disable=False):
         async with self.db.transaction() as tx:
@@ -112,7 +120,9 @@ class Chats:
                 await tx.execute('''INSERT INTO members(chat_id,user_id,role,seen)
                     VALUES (:cid,:uid,'member',:head) ON CONFLICT(chat_id,user_id) DO UPDATE SET archived=false''',
                     cid=cid, uid=uid, head=invite['head'])
-                await changed(tx, cid)
+                chat, _ = await access(tx, uid, cid)
+                chat.mark_membership_changed('join')
+                await publish_events(tx.outbox, chat)
             return {'id':cid, 'title':invite['title'], 'channel':invite['channel']}
 
     async def group_action(self, tx, role, keys, action, data):

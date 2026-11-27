@@ -1,4 +1,4 @@
-from messenger.domain.common import ApplicationError
+from messenger.domain.media.exceptions import AttachmentUnavailable
 from messenger.domain.media import Attachment
 
 
@@ -15,5 +15,5 @@ class PostgresAttachments:
         row = await self.tx.one('SELECT name,mime,data FROM attachments WHERE chat_id=:cid AND seq=:seq',
                                 cid=message_id.chat_id.value, seq=message_id.seq)
         if not row:
-            raise ApplicationError(404, 'Файл недоступен')
+            raise AttachmentUnavailable()
         return Attachment(row['name'], row['mime'], row['data'])

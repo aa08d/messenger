@@ -1,6 +1,6 @@
 from typing import Protocol
 
-from messenger.domain.identity import MessageId
+from messenger.domain.common.value_objects.identity import MessageId
 from messenger.domain.media import Attachment
 
 
