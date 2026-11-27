@@ -1,8 +1,12 @@
 from dataclasses import dataclass
 
+from messenger.domain.common.exceptions import DomainError
 from messenger.domain.common.value_objects import MessageId, UserId, ValueObject
 
-from ..exceptions import InvalidForwardOrigin
+
+class InvalidForwardOrigin(DomainError):
+    status = 422
+    detail = 'Некорректный источник пересылки'
 
 
 @dataclass(frozen=True, slots=True)

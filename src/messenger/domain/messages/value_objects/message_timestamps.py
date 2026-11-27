@@ -1,9 +1,13 @@
 from dataclasses import dataclass, replace
 from datetime import UTC, datetime
 
+from messenger.domain.common.exceptions import DomainError
 from messenger.domain.common.value_objects import ValueObject
 
-from ..exceptions import InvalidMessageTimestamps
+
+class InvalidMessageTimestamps(DomainError):
+    status = 422
+    detail = 'Некорректное время сообщения'
 
 
 @dataclass(frozen=True, slots=True)

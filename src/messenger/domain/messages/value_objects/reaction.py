@@ -1,8 +1,13 @@
 from dataclasses import dataclass
 
+from messenger.domain.common.exceptions import DomainError
 from messenger.domain.common.value_objects import ValueObject
 
-from ..exceptions import InvalidReaction
+
+class InvalidReaction(DomainError):
+    status = 422
+    detail = 'Неизвестная реакция'
+
 
 EMOJI = ('👍', '❤️', '🔥', '😂', '🎉', '👀')
 

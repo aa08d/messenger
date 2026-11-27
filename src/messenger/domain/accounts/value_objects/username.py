@@ -1,8 +1,13 @@
 import re
 from dataclasses import dataclass
 
+from messenger.domain.common.exceptions import DomainError
 from messenger.domain.common.value_objects.value_object import ValueObject
-from ..exceptions import InvalidUsername
+
+
+class InvalidUsername(DomainError):
+    status = 422
+    detail = 'Логин: 3–32 латинских символа, цифры или подчёркивания'
 
 
 @dataclass(frozen=True, slots=True)

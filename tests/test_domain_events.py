@@ -11,7 +11,7 @@ from messenger.domain.messages.value_objects import AttachmentMetadata
 from messenger.domain.messages.exceptions import InvalidContentReference, MessageAuthorRequired
 from messenger.domain.polls import Ballot, Poll, PollDefinition
 from messenger.domain.polls.events import PollBallotChanged, PollClosed
-from messenger.domain.polls.exceptions import InvalidBallot, PollUnavailable
+from messenger.domain.polls.exceptions import BallotNotAllowed, PollUnavailable
 
 
 class DomainEventsTest(TestCase):
@@ -63,7 +63,7 @@ class DomainEventsTest(TestCase):
 
     def test_poll_records_only_valid_state_changes(self):
         poll = Poll(self.id, self.author, PollDefinition('Where?', ('Home', 'Park'), False))
-        with self.assertRaises(InvalidBallot):
+        with self.assertRaises(BallotNotAllowed):
             poll.change_ballot(Ballot((0, 1)))
         self.assertEqual(poll.pull_events(), [])
         poll.change_ballot(Ballot((0,)))

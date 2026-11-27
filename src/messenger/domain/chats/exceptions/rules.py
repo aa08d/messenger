@@ -1,11 +1,6 @@
 from messenger.domain.common.exceptions import DomainError
 
 
-class InvalidPermissions(DomainError):
-    status = 422
-    detail = 'Некорректные права'
-
-
 class PermissionDenied(DomainError):
     status = 403
     detail = 'Недостаточно прав'

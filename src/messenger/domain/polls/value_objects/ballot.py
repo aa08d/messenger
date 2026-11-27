@@ -1,8 +1,12 @@
 from dataclasses import dataclass
 
+from messenger.domain.common.exceptions import DomainError
 from messenger.domain.common.value_objects.value_object import ValueObject
 
-from ..exceptions import InvalidBallot
+
+class InvalidBallot(DomainError):
+    status = 422
+    detail = 'Некорректный выбор'
 
 
 @dataclass(frozen=True, slots=True)

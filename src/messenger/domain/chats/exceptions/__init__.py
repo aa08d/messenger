@@ -1,5 +1,4 @@
 from .rules import (
-    InvalidPermissions,
     PermissionDenied,
     OwnerCannotLeave,
     InvalidMemberTarget,

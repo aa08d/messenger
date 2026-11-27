@@ -2,37 +2,40 @@ from datetime import UTC, datetime, timedelta
 from unittest import TestCase
 from uuid import uuid4
 
-from messenger.domain.accounts.value_objects import DisplayName, Username
-from messenger.domain.accounts.exceptions import InvalidUsername
-from messenger.domain.chats.exceptions import InvalidPermissions
-from messenger.domain.chats.value_objects import ChatTitle, Permissions
-from messenger.domain.common.exceptions import InvalidIdentifier, InvalidMessageSequence, InvalidTextLength
-from messenger.domain.common.value_objects import ChatId, MessageId, UserId
-from messenger.domain.messages.exceptions import (
-    EmptyAttachment,
-    InvalidAttachmentCaption,
-    InvalidAttachmentName,
-    InvalidAttachmentSize,
-    InvalidContentReference,
-    InvalidDuration,
-    InvalidForwardOrigin,
-    InvalidMediaFormat,
-    InvalidMessageTimestamps,
-    InvalidReaction,
-)
-from messenger.domain.messages.value_objects import (
+from messenger.domain.accounts.value_objects.display_name import DisplayName, InvalidDisplayName
+from messenger.domain.accounts.value_objects.username import InvalidUsername, Username
+from messenger.domain.chats.value_objects.chat_title import ChatTitle, InvalidChatTitle
+from messenger.domain.chats.value_objects.permissions import InvalidPermissions, Permissions
+from messenger.domain.common.value_objects.chat_id import ChatId, InvalidChatId
+from messenger.domain.common.value_objects.message_id import InvalidMessageChatId, InvalidMessageSequence, MessageId
+from messenger.domain.common.value_objects.user_id import InvalidUserId, UserId
+from messenger.domain.messages.value_objects.attachment_metadata import (
     MAX_ATTACHMENT_BYTES,
     AttachmentMetadata,
-    AttachmentRef,
-    ForwardOrigin,
-    MediaKind,
-    MessageText,
-    MessageTimestamps,
-    PollRef,
-    Reaction,
+    EmptyAttachment,
+    InvalidAttachmentName,
+    InvalidAttachmentSize,
+    InvalidDuration,
 )
-from messenger.domain.polls.exceptions import InvalidBallot, InvalidPollOptions
-from messenger.domain.polls.value_objects import Ballot, PollDefinition
+from messenger.domain.messages.value_objects.attachment_ref import (
+    AttachmentRef,
+    InvalidAttachmentCaption,
+    InvalidAttachmentKind,
+    InvalidAttachmentReference,
+)
+from messenger.domain.messages.value_objects.forward_origin import ForwardOrigin, InvalidForwardOrigin
+from messenger.domain.messages.value_objects.media_kind import InvalidMediaFormat, MediaKind
+from messenger.domain.messages.value_objects.message_text import InvalidMessageText, MessageText
+from messenger.domain.messages.value_objects.message_timestamps import InvalidMessageTimestamps, MessageTimestamps
+from messenger.domain.messages.value_objects.poll_ref import InvalidPollReference, PollRef
+from messenger.domain.messages.value_objects.reaction import InvalidReaction, Reaction
+from messenger.domain.polls.value_objects.ballot import Ballot, InvalidBallot
+from messenger.domain.polls.value_objects.poll_definition import (
+    InvalidPollOptions,
+    InvalidPollOptionText,
+    InvalidPollQuestion,
+    PollDefinition,
+)
 
 
 class ValueObjectTest(TestCase):
@@ -42,17 +45,17 @@ class ValueObjectTest(TestCase):
         attachment = AttachmentMetadata('photo.png', 1, None)
         now = datetime.now(UTC)
         cases = (
-            (UserId, ('not-a-uuid',), InvalidIdentifier),
-            (ChatId, (None,), InvalidIdentifier),
+            (UserId, ('not-a-uuid',), InvalidUserId),
+            (ChatId, (None,), InvalidChatId),
             (MessageId, (chat, True), InvalidMessageSequence),
             (MessageId, (chat, 0), InvalidMessageSequence),
-            (MessageId, (uuid4(), 1), InvalidIdentifier),
+            (MessageId, (uuid4(), 1), InvalidMessageChatId),
             (Username, ('bad user',), InvalidUsername),
-            (DisplayName, (' ',), InvalidTextLength),
-            (ChatTitle, ('x' * 81,), InvalidTextLength),
+            (DisplayName, (' ',), InvalidDisplayName),
+            (ChatTitle, ('x' * 81,), InvalidChatTitle),
             (Permissions, (frozenset({('send_text', True), ('send_text', False)}),), InvalidPermissions),
             (Permissions, (frozenset({('send_text', 1)}),), InvalidPermissions),
-            (MessageText, ('x' * 4001,), InvalidTextLength),
+            (MessageText, ('x' * 4001,), InvalidMessageText),
             (Reaction, ('unknown',), InvalidReaction),
             (MessageTimestamps, (now.replace(tzinfo=None),), InvalidMessageTimestamps),
             (MessageTimestamps, (now, now - timedelta(seconds=1)), InvalidMessageTimestamps),
@@ -61,11 +64,14 @@ class ValueObjectTest(TestCase):
             (AttachmentMetadata, ('file', 0, None), EmptyAttachment),
             (AttachmentMetadata, ('file', MAX_ATTACHMENT_BYTES + 1, None), InvalidAttachmentSize),
             (AttachmentMetadata, ('file', 1, -1), InvalidDuration),
-            (AttachmentRef, (message, 'unsupported', attachment), InvalidMediaFormat),
+            (AttachmentRef, (message, 'unsupported', attachment), InvalidAttachmentKind),
             (AttachmentRef, (message, 'photo', attachment, 'x' * 4001), InvalidAttachmentCaption),
-            (PollRef, (chat,), InvalidContentReference),
+            (AttachmentRef, (chat, 'photo', attachment), InvalidAttachmentReference),
+            (PollRef, (chat,), InvalidPollReference),
             (PollDefinition, ('Where?', ('Home', ' Home '), False), InvalidPollOptions),
             (PollDefinition, ('Where?', ('Home', 'Park'), 1), InvalidPollOptions),
+            (PollDefinition, (' ', ('Home', 'Park'), False), InvalidPollQuestion),
+            (PollDefinition, ('Where?', ('Home', ' '), False), InvalidPollOptionText),
             (Ballot, ((False,),), InvalidBallot),
             (Ballot, ((-1,),), InvalidBallot),
         )

@@ -1,7 +1,6 @@
 from .rules import (
-    InvalidPollOptions,
+    BallotNotAllowed,
     PollUnavailable,
-    InvalidBallot,
     PollAuthorRequired,
     NotAPoll,
 )

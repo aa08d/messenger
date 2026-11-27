@@ -1,7 +1,13 @@
 from dataclasses import dataclass
 
+from messenger.domain.common.exceptions import DomainError
 from messenger.domain.common.value_objects.value_object import ValueObject
-from messenger.domain.chats.exceptions import InvalidPermissions
+
+
+class InvalidPermissions(DomainError):
+    status = 422
+    detail = 'Некорректные права'
+
 
 PERMISSIONS = {
     'send_text': True, 'send_media': True, 'send_poll': True,

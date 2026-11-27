@@ -1,8 +1,28 @@
 from dataclasses import dataclass
 
+from messenger.domain.common.exceptions import DomainError
 from messenger.domain.common.value_objects import ValueObject
 
-from ..exceptions import EmptyAttachment, InvalidAttachmentName, InvalidAttachmentSize, InvalidDuration
+
+class InvalidAttachmentName(DomainError):
+    status = 422
+    detail = 'Некорректное имя вложения'
+
+
+class InvalidAttachmentSize(DomainError):
+    status = 422
+    detail = 'Некорректный размер вложения'
+
+
+class EmptyAttachment(DomainError):
+    status = 422
+    detail = 'Пустое вложение'
+
+
+class InvalidDuration(DomainError):
+    status = 422
+    detail = 'Некорректная длительность'
+
 
 MAX_ATTACHMENT_BYTES = 25 * 1024 * 1024
 

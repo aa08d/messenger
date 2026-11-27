@@ -3,6 +3,7 @@ class ApplicationError(Exception):
         self.status = status
         self.detail = detail
 
+
 class DomainError(ApplicationError):
     status = 422
     detail = 'Нарушено правило предметной области'
@@ -14,11 +15,6 @@ class DomainError(ApplicationError):
 class InvalidTextLength(DomainError):
     def __init__(self, maximum: int):
         super().__init__(f'Длина должна быть от 1 до {maximum} символов')
-
-
-class InvalidMessageSequence(DomainError):
-    status = 404
-    detail = 'Сообщение недоступно'
 
 
 class InvalidIdentifier(DomainError):

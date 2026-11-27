@@ -1,6 +1,11 @@
 from enum import StrEnum
 
-from ..exceptions import InvalidMediaFormat
+from messenger.domain.common.exceptions import DomainError
+
+
+class InvalidMediaFormat(DomainError):
+    status = 422
+    detail = 'Формат вложения не подходит'
 
 
 class MediaKind(StrEnum):
