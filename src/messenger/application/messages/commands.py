@@ -2,14 +2,13 @@ import hashlib
 import json
 
 from messenger.application.chats.access import access
+from messenger.application.composition.message_content import copy_content, prepare_content
 from messenger.application.events import publish_events
 from messenger.application.ports import UnitOfWork
 from messenger.domain.common import ApplicationError
 from messenger.domain.common.value_objects.identity import ChatId, MessageId, UserId
-from messenger.domain.media import MEDIA, Attachment, MediaContent, MediaKind
-from messenger.domain.messages import Message, MessageText, PollContent, Reaction
+from messenger.domain.messages import Message, Reaction
 from messenger.domain.messages.exceptions import RequestIdConflict
-from messenger.domain.polls import PollDefinition
 
 
 def fingerprint(body, attachment=None):
@@ -44,34 +43,19 @@ class Messages:
             if existing:
                 return existing
 
-            upload = Attachment(*attachment) if attachment else None
-            if kind == 'text':
-                member.require('send_text')
-                content = MessageText(body.get('text', ''))
-            elif kind == 'poll':
-                member.require('send_poll')
-                definition = PollDefinition(body.get('question', ''), tuple(body.get('options', [])),
-                                            bool(body.get('multiple')))
-                content = PollContent(definition)
-            elif kind in MEDIA and upload:
-                member.require('send_media')
-                media_kind = MediaKind(kind)
-                metadata = upload.describe(media_kind, body.get('duration'))
-                content = MediaContent(media_kind, metadata, body.get('text', ''))
-            else:
-                raise ApplicationError(422, 'Неизвестный тип сообщения')
-
+            message_id = chat.next_message_id()
+            prepared = prepare_content(message_id, member, kind, body, attachment)
             reply_to = MessageId(chat_id, reply) if reply is not None else None
             if reply_to:
                 await tx.messages.visible(reply_to, actor)
-            message = Message.create(chat.next_message_id(), actor, content, reply_to)
-            return await self.store(tx, message, request, digest, upload)
+            message = Message.create(message_id, actor, prepared.content, reply_to)
+            return await self.store(tx, message, request, digest, prepared)
 
-    async def store(self, tx, message, request, digest, attachment):
-        await tx.messages.add(message, request, digest)
-        cid, seq = message.id.chat_id.value, message.id.seq
-        if attachment:
-            await tx.attachments.add(message.id, attachment)
+    async def store(self, tx, message, request, digest, prepared):
+        await tx.messages.add(message, request, digest, prepared.details)
+        seq = message.id.seq
+        if prepared.attachment:
+            await tx.attachments.add(message.id, prepared.attachment)
         await publish_events(tx.outbox, message)
         return {'seq': seq}
 
@@ -88,11 +72,11 @@ class Messages:
                 return existing
 
             original = await tx.messages.visible(MessageId(ChatId(source), seq), actor)
-            content = original.forward_content()
-            Message.publish(content, member)
-            attachment = await tx.attachments.get(original.id) if isinstance(content, MediaContent) else None
-            message = Message.create(target.next_message_id(), actor, content, forwarded=True)
-            return await self.store(tx, message, request, digest, attachment)
+            Message.publish(original.content, member)
+            target_id = target.next_message_id()
+            prepared = await copy_content(tx, original, target_id)
+            message = Message.create(target_id, actor, prepared.content, forward_origin=original.origin_for_copy())
+            return await self.store(tx, message, request, digest, prepared)
 
     async def message_action(self, uid, cid, seq, action, data):
         async with self.db.transaction() as tx:

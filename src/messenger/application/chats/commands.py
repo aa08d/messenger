@@ -73,7 +73,11 @@ class Chats:
                 await tx.execute('UPDATE members SET archived=true,seen=GREATEST(seen,:head) WHERE chat_id=:cid', **keys)
                 for table in ('attachments','votes','reactions'):
                     await tx.execute(f'DELETE FROM {table} WHERE chat_id=:cid AND seq<=:head', **keys)
-                await tx.execute("UPDATE messages SET body='{}',deleted=true,pinned=false WHERE chat_id=:cid AND seq<=:head", **keys)
+                await tx.execute(
+                    """UPDATE messages SET body='{}',deleted=true,pinned=false,
+                        forwarded_from_chat=NULL,forwarded_from_seq=NULL,forwarded_from_author=NULL
+                    WHERE chat_id=:cid AND seq<=:head""", **keys,
+                )
             elif group:
                 await self.group_action(tx, role, keys, action, data)
                 if action in {'rename', 'defaults'}:

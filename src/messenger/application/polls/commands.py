@@ -2,8 +2,7 @@ from messenger.application.chats.access import access
 from messenger.application.events import publish_events
 from messenger.application.ports import UnitOfWork
 from messenger.domain.common.value_objects.identity import ChatId, MessageId, UserId
-from messenger.domain.messages import PollContent
-from messenger.domain.polls import Ballot, Poll
+from messenger.domain.polls import Ballot
 from messenger.domain.polls.exceptions import NotAPoll, PollAuthorRequired, PollUnavailable
 
 
@@ -15,28 +14,23 @@ class Polls:
         async with self.db.transaction() as tx:
             await access(tx, uid, cid, True)
             actor = UserId(uid)
-            message = await tx.messages.visible(MessageId(ChatId(cid), seq), actor)
-            content = message.content
-            if not isinstance(content, PollContent):
+            _, poll = await tx.polls.visible(MessageId(ChatId(cid), seq), actor)
+            if poll is None:
                 raise PollUnavailable()
-            poll = Poll(message.id, message.author, content.definition, content.closed)
             ballot = Ballot(tuple(options))
             poll.change_ballot(ballot)
-            await tx.ballots.record(poll.id, actor, ballot)
+            await tx.polls.record_ballot(poll.id, actor, ballot)
             await publish_events(tx.outbox, poll)
 
     async def close(self, uid, cid, seq):
         async with self.db.transaction() as tx:
             await access(tx, uid, cid, True)
             actor = UserId(uid)
-            message = await tx.messages.visible(MessageId(ChatId(cid), seq), actor)
-            content = message.content
-            if message.author != actor:
+            author, poll = await tx.polls.visible(MessageId(ChatId(cid), seq), actor)
+            if author != actor:
                 raise PollAuthorRequired()
-            if not isinstance(content, PollContent):
+            if poll is None:
                 raise NotAPoll()
-            poll = Poll(message.id, message.author, content.definition, content.closed)
             poll.close(actor)
-            message.content = PollContent(poll.definition, poll.closed)
-            await tx.messages.update_content(message)
+            await tx.polls.save_closed_state(poll)
             await publish_events(tx.outbox, poll)

@@ -2,9 +2,9 @@ from dataclasses import dataclass
 
 from messenger.domain.common.value_objects.value_object import ValueObject
 from messenger.domain.common import clean
-from messenger.domain.media import MediaContent
-from messenger.domain.polls import PollDefinition
 from messenger.domain.messages.exceptions import InvalidReaction
+
+from .references import AttachmentRef, PollRef
 
 EMOJI = ('👍', '❤️', '🔥', '😂', '🎉', '👀')
 
@@ -26,10 +26,4 @@ class Reaction(ValueObject):
             raise InvalidReaction()
 
 
-@dataclass(frozen=True, slots=True)
-class PollContent(ValueObject):
-    definition: PollDefinition
-    closed: bool = False
-
-
-MessageContent = MessageText | MediaContent | PollContent
+MessageContent = MessageText | AttachmentRef | PollRef

@@ -5,9 +5,9 @@ from uuid import uuid4
 from messenger.domain.chats import Membership, Permissions, Role
 from messenger.domain.common.entities import AggregateRoot
 from messenger.domain.common.value_objects.identity import ChatId, MessageId, UserId
-from messenger.domain.messages import Message, MessageText
+from messenger.domain.messages import AttachmentRef, Message, MessageText
 from messenger.domain.messages.events import MessageEdited, MessageHidden, MessageSent
-from messenger.domain.messages.exceptions import MessageAuthorRequired
+from messenger.domain.messages.exceptions import InvalidContentReference, MessageAuthorRequired
 from messenger.domain.polls import Ballot, Poll, PollDefinition
 from messenger.domain.polls.events import PollBallotChanged, PollClosed
 from messenger.domain.polls.exceptions import InvalidBallot, PollUnavailable
@@ -41,11 +41,24 @@ class DomainEventsTest(TestCase):
         self.assertEqual(message.pull_events(), [])
 
         message.edit(self.author, 'changed', self.member)
+        self.assertGreaterEqual(message.timestamps.edited_at, message.timestamps.created_at)
         message.hide(self.author)
         edited, hidden = message.pull_events()
         self.assertIsInstance(edited, MessageEdited)
         self.assertIsInstance(hidden, MessageHidden)
         self.assertEqual(hidden.only_recipient, self.author.value)
+
+    def test_attachment_copy_rebinds_reference_and_keeps_origin(self):
+        message = Message(self.id, self.author, AttachmentRef(self.id, 'photo'))
+        target = MessageId(ChatId(uuid4()), 2)
+        with self.assertRaises(InvalidContentReference):
+            Message(target, self.author, message.content)
+        copied = Message.create(target, self.author, message.content_for_copy(target),
+                                forward_origin=message.origin_for_copy())
+        self.assertEqual(copied.content.key, target)
+        self.assertEqual(copied.origin_for_copy().message_id, self.id)
+        self.assertEqual(copied.origin_for_copy().author, self.author)
+        self.assertTrue(copied.forwarded)
 
     def test_poll_records_only_valid_state_changes(self):
         poll = Poll(self.id, self.author, PollDefinition('Where?', ('Home', 'Park'), False))

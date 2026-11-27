@@ -29,3 +29,8 @@ class MessageUnavailable(DomainError):
 class RequestIdConflict(DomainError):
     status = 409
     detail = 'Этот идентификатор уже использован для другого сообщения'
+
+
+class InvalidContentReference(DomainError):
+    status = 422
+    detail = 'Ссылка на содержимое принадлежит другому сообщению'

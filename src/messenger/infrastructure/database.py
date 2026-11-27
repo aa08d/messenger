@@ -7,7 +7,7 @@ from messenger.infrastructure.attachments import PostgresAttachments
 from messenger.infrastructure.chats import PostgresChatAccess
 from messenger.infrastructure.messages import PostgresMessages
 from messenger.infrastructure.outbox import PostgresOutbox
-from messenger.infrastructure.polls import PostgresBallots
+from messenger.infrastructure.polls import PostgresPolls
 
 DATABASE_URL = os.getenv('DATABASE_URL', 'postgresql+asyncpg://chat:chat@localhost:5432/chat')
 
@@ -18,7 +18,7 @@ class PostgresTransaction:
         self.chat_access = PostgresChatAccess(self)
         self.attachments = PostgresAttachments(self)
         self.messages = PostgresMessages(self)
-        self.ballots = PostgresBallots(self)
+        self.polls = PostgresPolls(self)
 
     async def one(self, sql, **params):
         result = await self.connection.execute(text(sql), params)

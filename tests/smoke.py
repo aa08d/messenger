@@ -127,6 +127,17 @@ async def main():
     assert peter.call(group)['messages'][-1]['my_vote'] == [0,2]
     anna.call(f'{group}/messages/{poll}/close',{})
     peter.call(f'{group}/messages/{poll}/vote',{'options':[1]},status=409)
+    forwarded_poll = peter.call(saved+'/forward', {
+        'source':group.split('/')[-1], 'seq':poll, 'request_id':str(uuid4()),
+    })['seq']
+    copied_poll = next(msg for msg in peter.call(saved)['messages'] if msg['seq'] == forwarded_poll)
+    assert copied_poll['body'] == {
+        'question':'Куда?', 'options':['Домой','В парк','На работу'],
+        'multiple':True, 'closed':False, 'forwarded':True,
+    }
+    assert copied_poll['votes'] == []
+    assert 'forwarded_from_chat' not in copied_poll and 'forwarded_from_author' not in copied_poll
+
     peter.call(group+'/remove',{'user_id':outside.user['id']})
     outside.call(group,status=404)
     anna.call(group+'/transfer',{'user_id':peter.user['id']})

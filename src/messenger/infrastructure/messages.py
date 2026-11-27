@@ -1,11 +1,9 @@
 import json
 
 from messenger.application.messages.queries import VISIBLE
+from messenger.domain.common.value_objects.identity import ChatId, MessageId, UserId
+from messenger.domain.messages import AttachmentRef, ForwardOrigin, Message, MessageText, MessageTimestamps, PollRef
 from messenger.domain.messages.exceptions import MessageUnavailable
-from messenger.domain.common.value_objects.identity import MessageId, UserId
-from messenger.domain.media import AttachmentMetadata, MediaContent, MediaKind
-from messenger.domain.messages import Message, MessageText, PollContent
-from messenger.domain.polls import PollDefinition
 
 
 def decode_message(message_id, row):
@@ -13,11 +11,15 @@ def decode_message(message_id, row):
     if kind == 'text':
         content = MessageText(body['text'])
     elif kind == 'poll':
-        definition = PollDefinition(body['question'], tuple(body['options']), body['multiple'])
-        content = PollContent(definition, body['closed'])
+        content = PollRef(message_id)
     else:
-        metadata = AttachmentMetadata(body['name'], body['bytes'], body.get('duration'))
-        content = MediaContent(MediaKind(kind), metadata, body.get('text', ''))
+        content = AttachmentRef(message_id, kind, body.get('text', ''))
+    origin = None
+    if row['forwarded_from_chat'] is not None:
+        origin = ForwardOrigin(
+            MessageId(ChatId(row['forwarded_from_chat']), row['forwarded_from_seq']),
+            UserId(row['forwarded_from_author']),
+        )
     return Message(
         id=message_id,
         author=UserId(row['author']),
@@ -25,25 +27,19 @@ def decode_message(message_id, row):
         reply_to=MessageId(message_id.chat_id, row['reply']) if row['reply'] is not None else None,
         pinned=row['pinned'],
         forwarded=body.get('forwarded', False),
+        timestamps=MessageTimestamps(row['created'], row['edited']),
+        forward_origin=origin,
     )
 
 
-def encode_content(message):
+def encode_content(message, details):
     content = message.content
     if isinstance(content, MessageText):
         kind, body = 'text', {'text': content.value}
-    elif isinstance(content, PollContent):
-        definition = content.definition
-        kind, body = 'poll', {
-            'question': definition.question, 'options': definition.options,
-            'multiple': definition.multiple, 'closed': content.closed,
-        }
+    elif isinstance(content, PollRef):
+        kind, body = 'poll', dict(details)
     else:
-        metadata = content.metadata
-        kind, body = content.kind.value, {
-            'text': content.caption, 'name': metadata.name,
-            'bytes': metadata.size, 'duration': metadata.duration,
-        }
+        kind, body = content.kind, dict(details, text=content.caption)
     if message.forwarded:
         body['forwarded'] = True
     return kind, json.dumps(body)
@@ -74,23 +70,37 @@ class PostgresMessages:
             raise MessageUnavailable()
         return decode_message(message_id, row)
 
-    async def add(self, message, request, digest):
+    async def content_details(self, message_id):
+        row = await self.tx.one('SELECT body FROM messages WHERE chat_id=:cid AND seq=:seq', **key(message_id))
+        if not row:
+            raise MessageUnavailable()
+        return {field: value for field, value in row['body'].items() if field not in {'text', 'forwarded'}}
+
+    async def add(self, message, request, digest, details):
         keys = key(message.id)
         await self.tx.execute('UPDATE chats SET head=:seq WHERE id=:cid', **keys)
         await self.tx.execute('UPDATE members SET archived=false WHERE chat_id=:cid AND archived', **keys)
-        kind, body = encode_content(message)
+        kind, body = encode_content(message, details)
+        origin = message.forward_origin
         await self.tx.execute(
-            """INSERT INTO messages(chat_id,seq,author,request_id,request_hash,kind,body,reply)
-            VALUES (:cid,:seq,:uid,:request,:digest,:kind,CAST(:body AS jsonb),:reply)""",
+            """INSERT INTO messages(chat_id,seq,author,request_id,request_hash,kind,body,reply,
+                created,forwarded_from_chat,forwarded_from_seq,forwarded_from_author)
+            VALUES (:cid,:seq,:uid,:request,:digest,:kind,CAST(:body AS jsonb),:reply,
+                :created,:source_chat,:source_seq,:source_author)""",
             **keys, uid=message.author.value, request=request, digest=digest, kind=kind, body=body,
-            reply=message.reply_to.seq if message.reply_to else None,
+            reply=message.reply_to.seq if message.reply_to else None, created=message.timestamps.created_at,
+            source_chat=origin.message_id.chat_id.value if origin else None,
+            source_seq=origin.message_id.seq if origin else None,
+            source_author=origin.author.value if origin else None,
         )
 
     async def update_content(self, message):
-        _, body = encode_content(message)
+        content = message.content
+        body_text = content.value if isinstance(content, MessageText) else content.caption
         await self.tx.execute(
-            """UPDATE messages SET body=CAST(:body AS jsonb),edited=now()
-            WHERE chat_id=:cid AND seq=:seq""", **key(message.id), body=body,
+            """UPDATE messages SET body=jsonb_set(body,'{text}',to_jsonb(CAST(:text AS text))),
+                edited=:edited WHERE chat_id=:cid AND seq=:seq""",
+            **key(message.id), text=body_text, edited=message.timestamps.edited_at,
         )
 
     async def update_pin(self, message):
@@ -103,7 +113,11 @@ class PostgresMessages:
 
     async def delete(self, message_id):
         keys = key(message_id)
-        await self.tx.execute("UPDATE messages SET deleted=true,body='{}',pinned=false WHERE chat_id=:cid AND seq=:seq", **keys)
+        await self.tx.execute(
+            """UPDATE messages SET deleted=true,body='{}',pinned=false,
+                forwarded_from_chat=NULL,forwarded_from_seq=NULL,forwarded_from_author=NULL
+            WHERE chat_id=:cid AND seq=:seq""", **keys,
+        )
         for table in ('attachments', 'votes', 'reactions'):
             await self.tx.execute(f'DELETE FROM {table} WHERE chat_id=:cid AND seq=:seq', **keys)
 

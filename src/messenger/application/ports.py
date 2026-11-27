@@ -4,14 +4,14 @@ from messenger.application.chats.ports import ChatAccess
 from messenger.application.events.publisher import EventSink
 from messenger.application.media.ports import AttachmentRepository
 from messenger.application.messages.ports import MessageRepository
-from messenger.application.polls.ports import BallotRepository
+from messenger.application.polls.ports import PollRepository
 
 class Transaction(Protocol):
     outbox: EventSink
     chat_access: ChatAccess
     attachments: AttachmentRepository
     messages: MessageRepository
-    ballots: BallotRepository
+    polls: PollRepository
 
     async def one(self, sql: str, **params: Any) -> Mapping | None: ...
     async def all(self, sql: str, **params: Any) -> list[dict]: ...
