@@ -9,10 +9,14 @@ from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
 
-from messenger.application.auth import Accounts
-from messenger.application.chats import Chats
+from messenger.application.accounts.service import Accounts
+from messenger.application.chats.commands import Chats
+from messenger.application.chats.queries import ChatQueries
+from messenger.application.media.queries import Media
+from messenger.application.messages.commands import Messages
+from messenger.application.polls.commands import Polls
 from messenger.application.ports import Passwords, UnitOfWork
-from messenger.domain.chat import ChatError
+from messenger.domain.common import ApplicationError
 from messenger.infrastructure.database import Postgres
 from messenger.infrastructure.events import Updates
 from messenger.infrastructure.passwords import ArgonPasswords
@@ -30,6 +34,10 @@ class Services(Provider):
     passwords = provide(ArgonPasswords, provides=Passwords, scope=Scope.APP)
     accounts = provide(Accounts, scope=Scope.APP)
     chats = provide(Chats, scope=Scope.APP)
+    chat_queries = provide(ChatQueries, scope=Scope.APP)
+    messages = provide(Messages, scope=Scope.APP)
+    media = provide(Media, scope=Scope.APP)
+    polls = provide(Polls, scope=Scope.APP)
 
 container = make_async_container(Services())
 updates = Updates()
@@ -50,8 +58,8 @@ app = FastAPI(title='Контур', lifespan=lifespan)
 setup_dishka(container, app)
 app.include_router(router)
 
-@app.exception_handler(ChatError)
-async def handle_error(request: Request, error: ChatError):
+@app.exception_handler(ApplicationError)
+async def handle_error(request: Request, error: ApplicationError):
     return JSONResponse({'detail': error.detail}, status_code=error.status)
 
 app.mount('/', StaticFiles(directory=Path(__file__).parents[1] / 'presentation/web', html=True), name='web')

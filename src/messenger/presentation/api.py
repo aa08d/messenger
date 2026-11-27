@@ -10,9 +10,14 @@ from starlette.websockets import WebSocketDisconnect
 from fastapi.responses import JSONResponse, Response
 from pydantic import BaseModel, Field
 
-from messenger.application.auth import Accounts
-from messenger.application.chats import Chats
-from messenger.domain.chat import ChatError, MEDIA
+from messenger.application.accounts.service import Accounts
+from messenger.application.chats.commands import Chats
+from messenger.application.chats.queries import ChatQueries
+from messenger.application.media.queries import Media
+from messenger.application.messages.commands import Messages
+from messenger.application.polls.commands import Polls
+from messenger.domain.common import ApplicationError
+from messenger.domain.media import MEDIA
 from messenger.infrastructure.events import Updates
 
 router = APIRouter(prefix='/api', route_class=DishkaRoute)
@@ -68,13 +73,13 @@ def check_origin(req):
     origin = req.headers.get('origin')
     expected = os.getenv('PUBLIC_ORIGIN')
     if origin and (origin != expected if expected else urlsplit(origin).netloc != req.headers.get('host')):
-        raise ChatError(403, 'Источник запроса не разрешён')
+        raise ApplicationError(403, 'Источник запроса не разрешён')
 
 @router.post('/account/{mode}')
 async def account(mode: Literal['login','register'], form: AccountForm, req: Request, accounts: FromDishka[Accounts]):
     check_origin(req)
     if mode == 'register' and form.name is None:
-        raise ChatError(422, 'Укажите имя')
+        raise ApplicationError(422, 'Укажите имя')
     token, user = await accounts.authorize(form.username, form.password, form.name if mode == 'register' else None)
     response = JSONResponse({key: str(value) for key, value in user.items()})
     response.set_cookie(COOKIE, token, httponly=True, secure=SECURE, samesite='strict', max_age=2592000)
@@ -97,8 +102,8 @@ async def people(q: str, req: Request, accounts: FromDishka[Accounts]):
     return await accounts.search(await uid(req, accounts), q)
 
 @router.get('/chats')
-async def list_chats(req: Request, accounts: FromDishka[Accounts], chats: FromDishka[Chats]):
-    return await chats.list(await uid(req, accounts))
+async def list_chats(req: Request, accounts: FromDishka[Accounts], queries: FromDishka[ChatQueries]):
+    return await queries.list(await uid(req, accounts))
 
 @router.post('/chats')
 async def create(form: ChatForm, req: Request, accounts: FromDishka[Accounts], chats: FromDishka[Chats]):
@@ -111,9 +116,9 @@ async def saved(req: Request, accounts: FromDishka[Accounts], chats: FromDishka[
     return await chats.create(await uid(req, accounts), None, [], saved=True)
 
 @router.post('/chats/{cid}/forward')
-async def forward(cid: UUID, form: ForwardForm, req: Request, accounts: FromDishka[Accounts], chats: FromDishka[Chats]):
+async def forward(cid: UUID, form: ForwardForm, req: Request, accounts: FromDishka[Accounts], messages: FromDishka[Messages]):
     check_origin(req)
-    return await chats.forward(await uid(req, accounts), cid, form.source, form.seq, form.request_id)
+    return await messages.forward(await uid(req, accounts), cid, form.source, form.seq, form.request_id)
 
 @router.post('/chats/{cid}/invite-link')
 async def invite_link(cid: UUID, form: ActionForm, req: Request, accounts: FromDishka[Accounts], chats: FromDishka[Chats]):
@@ -126,16 +131,16 @@ async def invite(form: InviteForm, req: Request, accounts: FromDishka[Accounts],
     return await chats.by_invite(await uid(req, accounts), form.token, join=form.join)
 
 @router.get('/chats/{cid}')
-async def detail(cid: UUID, req: Request, accounts: FromDishka[Accounts], chats: FromDishka[Chats], before: int | None = None, q: str = ''):
-    return await chats.detail(await uid(req, accounts), cid, before, q[:120])
+async def detail(cid: UUID, req: Request, accounts: FromDishka[Accounts], queries: FromDishka[ChatQueries], before: int | None = None, q: str = ''):
+    return await queries.detail(await uid(req, accounts), cid, before, q[:120])
 
 @router.post('/chats/{cid}/messages')
-async def send(cid: UUID, form: MessageForm, req: Request, accounts: FromDishka[Accounts], chats: FromDishka[Chats]):
+async def send(cid: UUID, form: MessageForm, req: Request, accounts: FromDishka[Accounts], messages: FromDishka[Messages]):
     check_origin(req)
-    return await chats.send(await uid(req, accounts), cid, form.request_id, form.kind, form.model_dump(), form.reply)
+    return await messages.send(await uid(req, accounts), cid, form.request_id, form.kind, form.model_dump(), form.reply)
 
 @router.post('/chats/{cid}/media')
-async def upload(cid: UUID, req: Request, accounts: FromDishka[Accounts], chats: FromDishka[Chats],
+async def upload(cid: UUID, req: Request, accounts: FromDishka[Accounts], messages: FromDishka[Messages],
                  file: Annotated[UploadFile, File()], kind: Annotated[str, Form()],
                  request_id: Annotated[UUID, Form()], text: Annotated[str, Form(max_length=4000)] = '',
                  duration: Annotated[int | None, Form(ge=0, le=86400)] = None,
@@ -143,21 +148,21 @@ async def upload(cid: UUID, req: Request, accounts: FromDishka[Accounts], chats:
     check_origin(req)
     user = await uid(req, accounts)
     if kind not in MEDIA:
-        raise ChatError(422, 'Неизвестный тип файла')
+        raise ApplicationError(422, 'Неизвестный тип файла')
     limit = 25 * 1024 * 1024
     data = await file.read(limit + 1)
     if not data or len(data) > limit:
-        raise ChatError(413, 'Максимальный размер вложения 25 МБ')
+        raise ApplicationError(413, 'Максимальный размер вложения 25 МБ')
     mime = (file.content_type or '').split(';',1)[0].lower()
     if mime not in SAFE_MEDIA:
         mime = 'application/octet-stream'
     name = (file.filename or 'file').replace(chr(0), '')[:180]
-    return await chats.send(user, cid, request_id, kind, {'text': text, 'duration': duration},
+    return await messages.send(user, cid, request_id, kind, {'text': text, 'duration': duration},
                             reply, (name, mime, data))
 
 @router.get('/chats/{cid}/media/{seq}')
-async def download(cid: UUID, seq: int, req: Request, accounts: FromDishka[Accounts], chats: FromDishka[Chats]):
-    media = await chats.attachment(await uid(req, accounts), cid, seq)
+async def download(cid: UUID, seq: int, req: Request, accounts: FromDishka[Accounts], media_queries: FromDishka[Media]):
+    media = await media_queries.attachment(await uid(req, accounts), cid, seq)
     data = media['data']
     mime = media['mime']
     headers = {
@@ -184,9 +189,15 @@ async def download(cid: UUID, seq: int, req: Request, accounts: FromDishka[Accou
 
 @router.post('/chats/{cid}/messages/{seq}/{action}')
 async def message_action(cid: UUID, seq: int, action: str, form: ActionForm, req: Request,
-                         accounts: FromDishka[Accounts], chats: FromDishka[Chats]):
+                         accounts: FromDishka[Accounts], messages: FromDishka[Messages], polls: FromDishka[Polls]):
     check_origin(req)
-    await chats.message_action(await uid(req, accounts), cid, seq, action, form)
+    user = await uid(req, accounts)
+    if action == 'vote':
+        await polls.vote(user, cid, seq, form.options)
+    elif action == 'close':
+        await polls.close(user, cid, seq)
+    else:
+        await messages.message_action(user, cid, seq, action, form)
     return {'ok': True}
 
 @router.post('/chats/{cid}/{action}')
@@ -205,7 +216,7 @@ async def live(ws: WebSocket):
         check_origin(ws)
         user = (await accounts.current(token))['id']
         await ws.accept()
-    except ChatError:
+    except ApplicationError:
         await ws.close(code=1008)
         return
     event = updates.subscribe(user)
@@ -224,7 +235,7 @@ async def live(ws: WebSocket):
             event.clear()
             await accounts.current(token)
             await ws.send_json({'type': 'refresh'})
-    except ChatError:
+    except ApplicationError:
         await ws.close(code=1008)
     except (WebSocketDisconnect, OSError):
         pass

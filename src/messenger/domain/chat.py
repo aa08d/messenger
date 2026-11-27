@@ -1,16 +1,12 @@
 from dataclasses import dataclass
 
+from messenger.domain.common import ApplicationError
+
 PERMISSIONS = {
     'send_text': True, 'send_media': True, 'send_poll': True,
     'invite': False, 'pin': False, 'manage': False, 'delete_others': False,
 }
-MEDIA = {'voice', 'circle', 'photo', 'video', 'file'}
-EMOJI = ('👍', '❤️', '🔥', '😂', '🎉', '👀')
 
-class ChatError(Exception):
-    def __init__(self, status: int, detail: str):
-        self.status = status
-        self.detail = detail
 
 @dataclass(frozen=True)
 class Membership:
@@ -28,15 +24,9 @@ class Membership:
 
     def require(self, permission: str) -> None:
         if not self.allows(permission):
-            raise ChatError(403, 'Недостаточно прав')
-
-def clean(value: str, maximum: int) -> str:
-    value = value.strip()
-    if not value or len(value) > maximum:
-        raise ChatError(422, f'Длина должна быть от 1 до {maximum} символов')
-    return value
+            raise ApplicationError(403, 'Недостаточно прав')
 
 def permission_map(value: dict) -> dict:
     if any(key not in PERMISSIONS or type(flag) is not bool for key, flag in value.items()):
-        raise ChatError(422, 'Некорректные права')
+        raise ApplicationError(422, 'Некорректные права')
     return value
