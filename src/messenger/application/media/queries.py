@@ -1,7 +1,6 @@
 from messenger.application.chats.access import access
-from messenger.application.media.storage import read_attachment
-from messenger.application.messages.queries import visible_message
 from messenger.application.ports import UnitOfWork
+from messenger.domain.identity import ChatId, MessageId, UserId
 
 
 class Media:
@@ -11,6 +10,7 @@ class Media:
     async def attachment(self, uid, cid, seq):
         async with self.db.transaction() as tx:
             await access(tx, uid, cid, True)
-            await visible_message(tx, uid, cid, seq)
-            name, mime, data = await read_attachment(tx, cid, seq)
-            return {'name': name, 'mime': mime, 'data': data}
+            message_id = MessageId(ChatId(cid), seq)
+            await tx.messages.visible(message_id, UserId(uid))
+            attachment = await tx.attachments.get(message_id)
+            return {'name': attachment.name, 'mime': attachment.mime, 'data': attachment.data}

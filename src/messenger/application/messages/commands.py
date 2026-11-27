@@ -2,14 +2,13 @@ import hashlib
 import json
 
 from messenger.application.chats.access import access
-from messenger.application.media.storage import read_attachment, store_attachment
-from messenger.application.messages.queries import visible_message
 from messenger.application.outbox import changed
 from messenger.application.ports import UnitOfWork
-from messenger.domain.common import ApplicationError, clean
-from messenger.domain.media import MEDIA, media_content
-from messenger.domain.message import text_content, validate_reaction
-from messenger.domain.poll import poll_content
+from messenger.domain.common import ApplicationError
+from messenger.domain.identity import ChatId, MessageId, UserId
+from messenger.domain.media import MEDIA, Attachment, MediaContent, MediaKind
+from messenger.domain.messages import Message, MessageText, PollContent, Reaction
+from messenger.domain.polls import PollDefinition
 
 
 def fingerprint(body, attachment=None):
@@ -20,18 +19,15 @@ def fingerprint(body, attachment=None):
         digest.update(data)
     return digest.hexdigest()
 
-async def prior_message(tx, cid, uid, request, digest):
-    found = await tx.one(
-        """SELECT seq,request_hash FROM messages WHERE chat_id=:cid
-        AND author=:uid AND request_id=:request""",
-        cid=cid, uid=uid, request=request,
-    )
-    if found is not None:
-        if found['request_hash'] not in {None, digest}:
-            raise ApplicationError(409, 'Этот идентификатор уже использован для другого сообщения')
-        return {'seq': found['seq']}
-    return None
 
+async def prior_message(repository, cid, uid, request, digest):
+    found = await repository.prior_request(cid, uid, request)
+    if found is not None:
+        seq, previous_digest = found
+        if previous_digest not in {None, digest}:
+            raise ApplicationError(409, 'Этот идентификатор уже использован для другого сообщения')
+        return {'seq': seq}
+    return None
 
 
 class Messages:
@@ -40,36 +36,41 @@ class Messages:
 
     async def send(self, uid, cid, request, kind, body, reply, attachment=None):
         async with self.db.transaction() as tx:
-            chat, role = await access(tx, uid, cid, True)
-            digest = fingerprint([kind,body,reply], attachment)
-            existing = await prior_message(tx,cid,uid,request,digest)
+            chat, member = await access(tx, uid, cid, True)
+            actor, chat_id = UserId(uid), ChatId(cid)
+            digest = fingerprint([kind, body, reply], attachment)
+            existing = await prior_message(tx.messages, chat_id, actor, request, digest)
             if existing:
                 return existing
+
+            upload = Attachment(*attachment) if attachment else None
             if kind == 'text':
-                role.require('send_text')
-                content = text_content(body.get('text', ''))
+                member.require('send_text')
+                content = MessageText(body.get('text', ''))
             elif kind == 'poll':
-                role.require('send_poll')
-                content = poll_content(body.get('question', ''), body.get('options', []), body.get('multiple'))
-            elif kind in MEDIA and attachment:
-                role.require('send_media')
-                content = media_content(kind, body.get('text', ''), body.get('duration'), attachment)
+                member.require('send_poll')
+                definition = PollDefinition(body.get('question', ''), tuple(body.get('options', [])),
+                                            bool(body.get('multiple')))
+                content = PollContent(definition)
+            elif kind in MEDIA and upload:
+                member.require('send_media')
+                media_kind = MediaKind(kind)
+                metadata = upload.describe(media_kind, body.get('duration'))
+                content = MediaContent(media_kind, metadata, body.get('text', ''))
             else:
                 raise ApplicationError(422, 'Неизвестный тип сообщения')
-            if reply is not None:
-                await visible_message(tx, uid, cid, reply)
-            return await self.store(tx, chat, uid, request, digest, kind, content, reply, attachment)
 
-    async def store(self, tx, chat, uid, request, digest, kind, content, reply, attachment):
-        cid = chat['id']
-        seq = chat['head'] + 1
-        await tx.execute('UPDATE chats SET head=:seq WHERE id=:cid', seq=seq, cid=cid)
-        await tx.execute('UPDATE members SET archived=false WHERE chat_id=:cid AND archived', cid=cid)
-        await tx.execute('''INSERT INTO messages(chat_id,seq,author,request_id,request_hash,kind,body,reply)
-            VALUES (:cid,:seq,:uid,:request,:digest,:kind,CAST(:body AS jsonb),:reply)''',
-            cid=cid, uid=uid, request=request, digest=digest, seq=seq, kind=kind, body=json.dumps(content), reply=reply)
+            reply_to = MessageId(chat_id, reply) if reply is not None else None
+            if reply_to:
+                await tx.messages.visible(reply_to, actor)
+            message = Message(chat.next_message_id(), actor, content, reply_to)
+            return await self.store(tx, message, request, digest, upload)
+
+    async def store(self, tx, message, request, digest, attachment):
+        await tx.messages.add(message, request, digest)
+        cid, seq = message.id.chat_id.value, message.id.seq
         if attachment:
-            await store_attachment(tx, cid, seq, attachment)
+            await tx.attachments.add(message.id, attachment)
         await changed(tx, cid)
         return {'seq': seq}
 
@@ -78,58 +79,38 @@ class Messages:
             # Use a stable order so simultaneous cross-forwards cannot deadlock.
             for chat_id in sorted({cid, source}):
                 await access(tx, uid, chat_id, True)
-            target, role = await access(tx, uid, cid)
+            target, member = await access(tx, uid, cid)
+            actor, chat_id = UserId(uid), ChatId(cid)
             digest = fingerprint(['forward', source, seq])
-            existing = await prior_message(tx,cid,uid,request,digest)
+            existing = await prior_message(tx.messages, chat_id, actor, request, digest)
             if existing:
                 return existing
-            message = await visible_message(tx, uid, source, seq)
-            kind = message['kind']
-            role.require({'text':'send_text', 'poll':'send_poll'}.get(kind, 'send_media'))
-            body = dict(message['body'])
-            body['forwarded'] = True
-            if kind == 'poll':
-                body['closed'] = False
-            attachment = await read_attachment(tx, source, seq) if kind in MEDIA else None
-            return await self.store(tx, target, uid, request, digest, kind, body, None, attachment)
+
+            original = await tx.messages.visible(MessageId(ChatId(source), seq), actor)
+            content = original.forward_content()
+            Message.publish(content, member)
+            attachment = await tx.attachments.get(original.id) if isinstance(content, MediaContent) else None
+            message = Message(target.next_message_id(), actor, content, forwarded=True)
+            return await self.store(tx, message, request, digest, attachment)
 
     async def message_action(self, uid, cid, seq, action, data):
         async with self.db.transaction() as tx:
-            chat, role = await access(tx, uid, cid, True)
-            msg = await visible_message(tx, uid, cid, seq)
-            keys = dict(cid=cid, seq=seq, uid=uid)
-            where = 'WHERE chat_id=:cid AND seq=:seq'
+            chat, member = await access(tx, uid, cid, True)
+            actor = UserId(uid)
+            message_id = MessageId(ChatId(cid), seq)
+            message = await tx.messages.visible(message_id, actor)
+            direct = chat.direct
             if action == 'hide':
-                await tx.execute('INSERT INTO hidden_messages VALUES (:cid,:seq,:uid) ON CONFLICT DO NOTHING', **keys)
+                await tx.messages.hide(message_id, actor)
             elif action == 'delete':
-                if msg['author'] != uid and chat['direct_key'] is None:
-                    role.require('delete_others')
-                await tx.execute(f"UPDATE messages SET deleted=true,body='{{}}',pinned=false {where}", **keys)
-                await tx.execute(f'DELETE FROM attachments {where}', **keys)
-                await tx.execute(f'DELETE FROM votes {where}', **keys)
-                await tx.execute(f'DELETE FROM reactions {where}', **keys)
+                message.authorize_deletion(actor, member, direct=direct)
+                await tx.messages.delete(message_id)
             elif action == 'pin':
-                if chat['direct_key'] is None:
-                    role.require('pin')
-                await tx.execute(f'UPDATE messages SET pinned=:flag {where}', flag=data.flag, **keys)
+                await tx.messages.update_pin(message.pin(data.flag, member, direct=direct))
             elif action == 'edit':
-                if msg['author'] != uid:
-                    raise ApplicationError(403, 'Действие доступно автору')
-                if msg['kind'] == 'poll':
-                    raise ApplicationError(422, 'Действие не подходит для этого сообщения')
-                body = dict(msg['body'])
-                role.require('send_text' if msg['kind'] == 'text' else 'send_media')
-                body['text'] = clean(data.text, 4000) if msg['kind'] == 'text' else data.text.strip()
-                await tx.execute(f'UPDATE messages SET body=CAST(:body AS jsonb),edited=now() {where}',
-                                 body=json.dumps(body), **keys)
+                await tx.messages.update_content(message.edit(actor, data.text, member))
             elif action == 'react':
-                validate_reaction(data.text)
-                if data.text:
-                    await tx.execute('''INSERT INTO reactions VALUES (:cid,:seq,:uid,:emoji)
-                        ON CONFLICT(chat_id,seq,user_id) DO UPDATE SET emoji=EXCLUDED.emoji''',
-                        **keys, emoji=data.text)
-                else:
-                    await tx.execute(f'DELETE FROM reactions {where} AND user_id=:uid', **keys)
+                await tx.messages.react(message_id, actor, Reaction(data.text) if data.text else None)
             else:
                 raise ApplicationError(422, 'Неизвестное действие')
             await changed(tx, cid, only=uid if action == 'hide' else None)

@@ -6,8 +6,9 @@ from uuid import uuid4
 from messenger.application.chats.access import access
 from messenger.application.outbox import changed
 from messenger.application.ports import UnitOfWork
-from messenger.domain.chat import permission_map
-from messenger.domain.common import ApplicationError, clean
+from messenger.domain.chats import ChatTitle, Role, permission_map
+from messenger.domain.identity import UserId
+from messenger.domain.common import ApplicationError
 
 
 class Chats:
@@ -34,7 +35,7 @@ class Chats:
                 '''INSERT INTO chats (id,title,direct_key,channel,permissions)
                 VALUES (:cid,:title,:key,:channel,CAST(:defaults AS jsonb))
                 ON CONFLICT(direct_key) DO UPDATE SET direct_key=EXCLUDED.direct_key RETURNING id''',
-                cid=cid, title='Избранное' if saved else '' if direct else clean(title, 80), key=key,
+                cid=cid, title='Избранное' if saved else '' if direct else ChatTitle(title).value, key=key,
                 channel=channel, defaults=json.dumps(defaults),
             )
             for person in people | {uid}:
@@ -51,10 +52,10 @@ class Chats:
     async def chat_action(self, uid, cid, action, data):
         async with self.db.transaction() as tx:
             chat, role = await access(tx, uid, cid, True)
-            keys = dict(uid=uid, cid=cid, head=chat['head'])
-            group = chat['direct_key'] is None
+            keys = dict(uid=uid, cid=cid, head=chat.head)
+            group = not chat.direct
             if action == 'read':
-                seq = min(max(data.seq, 0), chat['head'])
+                seq = chat.read_through(data.seq)
                 updated = await tx.one('''UPDATE members SET seen=:seq WHERE chat_id=:cid AND user_id=:uid
                     AND seen<:seq RETURNING seen''', seq=seq, **keys)
                 if updated is None:
@@ -63,15 +64,14 @@ class Chats:
                 await tx.execute('''UPDATE members SET hidden=:head,seen=GREATEST(seen,:head),archived=true
                     WHERE chat_id=:cid AND user_id=:uid''', **keys)
             elif action == 'revoke':
-                if group and role.role != 'owner':
-                    raise ApplicationError(403, 'Историю группы может удалить владелец')
+                chat.authorize_history_revocation(role)
                 await tx.execute('UPDATE chats SET cleared=:head WHERE id=:cid', **keys)
                 await tx.execute('UPDATE members SET archived=true,seen=GREATEST(seen,:head) WHERE chat_id=:cid', **keys)
                 for table in ('attachments','votes','reactions'):
                     await tx.execute(f'DELETE FROM {table} WHERE chat_id=:cid AND seq<=:head', **keys)
                 await tx.execute("UPDATE messages SET body='{}',deleted=true,pinned=false WHERE chat_id=:cid AND seq<=:head", **keys)
             elif group:
-                await self.group_action(tx, chat, role, keys, action, data)
+                await self.group_action(tx, role, keys, action, data)
             else:
                 raise ApplicationError(422, 'Действие доступно в группе')
             await changed(tx, cid, only=uid if action == 'clear' else None,
@@ -80,7 +80,7 @@ class Chats:
     async def invite_link(self, uid, cid, disable=False):
         async with self.db.transaction() as tx:
             chat, role = await access(tx, uid, cid, True)
-            if chat['direct_key'] is not None:
+            if chat.direct:
                 raise ApplicationError(422, 'Ссылки доступны в группах и каналах')
             role.require('invite')
             if disable:
@@ -115,7 +115,7 @@ class Chats:
                 await changed(tx, cid)
             return {'id':cid, 'title':invite['title'], 'channel':invite['channel']}
 
-    async def group_action(self, tx, chat, role, keys, action, data):
+    async def group_action(self, tx, role, keys, action, data):
         target = data.user_id
         args = dict(keys, target=target)
         if action == 'invite':
@@ -125,25 +125,24 @@ class Chats:
             await tx.execute('''INSERT INTO members(chat_id,user_id,role,seen)
                 VALUES (:cid,:target,'member',:head) ON CONFLICT DO NOTHING''', **args)
         elif action == 'leave':
-            if role.role == 'owner':
-                raise ApplicationError(409, 'Передайте владение перед выходом')
+            role.authorize_departure()
             await tx.execute('DELETE FROM members WHERE chat_id=:cid AND user_id=:uid', **args)
         elif action in {'rename','defaults'}:
             role.require('manage')
             if action == 'rename':
-                await tx.execute('UPDATE chats SET title=:title WHERE id=:cid', title=clean(data.text, 80), **args)
-            elif role.role == 'owner':
+                await tx.execute('UPDATE chats SET title=:title WHERE id=:cid', title=ChatTitle(data.text).value, **args)
+            else:
+                role.authorize_default_permissions()
                 await tx.execute('UPDATE chats SET permissions=CAST(:p AS jsonb) WHERE id=:cid',
                                  p=json.dumps(permission_map(data.permissions)), **args)
-            else:
-                raise ApplicationError(403, 'Общие права меняет владелец')
         elif action in {'remove','member','transfer'}:
             role.require('manage')
             current = await tx.one('SELECT role FROM members WHERE chat_id=:cid AND user_id=:target', **args)
-            if not current or current['role'] == 'owner' or target == keys['uid']:
-                raise ApplicationError(403, 'Действие недоступно для этого участника')
-            if role.role != 'owner' and (action != 'remove' or current['role'] != 'member'):
-                raise ApplicationError(403, 'Это действие доступно владельцу')
+            role.authorize_member_change(
+                UserId(target) if target else None,
+                Role(current['role']) if current else None,
+                removing=action == 'remove',
+            )
             if action == 'remove':
                 await tx.execute('DELETE FROM members WHERE chat_id=:cid AND user_id=:target', **args)
             elif action == 'transfer':

@@ -1,10 +1,12 @@
-import json
+from dataclasses import replace
 
 from messenger.application.chats.access import access
-from messenger.application.messages.queries import visible_message
 from messenger.application.outbox import changed
 from messenger.application.ports import UnitOfWork
-from messenger.domain.poll import close_poll, vote_options
+from messenger.domain.common import ApplicationError
+from messenger.domain.identity import ChatId, MessageId, UserId
+from messenger.domain.messages import PollContent
+from messenger.domain.polls import Ballot, Poll
 
 
 class Polls:
@@ -14,27 +16,27 @@ class Polls:
     async def vote(self, uid, cid, seq, options):
         async with self.db.transaction() as tx:
             await access(tx, uid, cid, True)
-            message = await visible_message(tx, uid, cid, seq)
-            options = vote_options(message, options)
-            keys = dict(cid=cid, seq=seq, uid=uid)
-            if options:
-                await tx.execute(
-                    """INSERT INTO votes VALUES (:cid,:seq,:uid,:options)
-                    ON CONFLICT(chat_id,seq,user_id) DO UPDATE SET options=EXCLUDED.options""",
-                    **keys, options=options,
-                )
-            else:
-                await tx.execute('DELETE FROM votes WHERE chat_id=:cid AND seq=:seq AND user_id=:uid', **keys)
+            actor = UserId(uid)
+            message = await tx.messages.visible(MessageId(ChatId(cid), seq), actor)
+            content = message.content
+            if not isinstance(content, PollContent):
+                raise ApplicationError(409, 'Голосование недоступно')
+            poll = Poll(message.id, message.author, content.definition, content.closed)
+            ballot = Ballot(tuple(options))
+            poll.validate_ballot(ballot)
+            await tx.ballots.record(poll.id, actor, ballot)
             await changed(tx, cid)
 
     async def close(self, uid, cid, seq):
         async with self.db.transaction() as tx:
             await access(tx, uid, cid, True)
-            message = await visible_message(tx, uid, cid, seq)
-            body = close_poll(message, uid)
-            await tx.execute(
-                """UPDATE messages SET body=CAST(:body AS jsonb),edited=now()
-                WHERE chat_id=:cid AND seq=:seq""",
-                cid=cid, seq=seq, body=json.dumps(body),
-            )
+            actor = UserId(uid)
+            message = await tx.messages.visible(MessageId(ChatId(cid), seq), actor)
+            content = message.content
+            if message.author != actor:
+                raise ApplicationError(403, 'Действие доступно автору')
+            if not isinstance(content, PollContent):
+                raise ApplicationError(422, 'Действие не подходит для этого сообщения')
+            poll = Poll(message.id, message.author, content.definition, content.closed).close(actor)
+            await tx.messages.update_content(replace(message, content=PollContent(poll.definition, poll.closed)))
             await changed(tx, cid)

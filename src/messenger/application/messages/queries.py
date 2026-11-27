@@ -1,18 +1,6 @@
-from messenger.domain.common import ApplicationError
-
 VISIBLE = '''m.seq>GREATEST(c.cleared,me.hidden) AND NOT m.deleted
 AND NOT EXISTS (SELECT 1 FROM hidden_messages h
  WHERE h.chat_id=m.chat_id AND h.seq=m.seq AND h.user_id=me.user_id)'''
-
-async def visible_message(tx, uid, cid, seq):
-    msg = await tx.one(f'''
-        SELECT m.* FROM messages m JOIN chats c ON c.id=m.chat_id
-        JOIN members me ON me.chat_id=c.id AND me.user_id=:uid
-        WHERE c.id=:cid AND m.seq=:seq AND {VISIBLE}''', uid=uid, cid=cid, seq=seq)
-    if not msg:
-        raise ApplicationError(404, 'Сообщение недоступно')
-    return msg
-
 
 async def history(tx, uid, cid, before, query):
     params = dict(uid=uid,cid=cid,before=before,query=query.lower())

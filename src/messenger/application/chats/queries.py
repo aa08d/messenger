@@ -1,7 +1,7 @@
 from messenger.application.chats.access import access
 from messenger.application.messages.queries import VISIBLE, history, pinned_messages
 from messenger.application.ports import UnitOfWork
-from messenger.domain.chat import PERMISSIONS
+from messenger.domain.chats import PERMISSIONS
 
 
 class ChatQueries:
@@ -37,12 +37,12 @@ class ChatQueries:
             members = await tx.all('''SELECT u.id,u.username,u.name,p.role,p.overrides,p.seen
                 FROM members p JOIN users u ON u.id=p.user_id WHERE p.chat_id=:cid ORDER BY u.name''', cid=cid)
             pinned = await pinned_messages(tx, uid, cid)
-            direct = chat['direct_key'] is not None
+            title = 'Избранное' if chat.saved else chat.title.value if chat.title else ''
+            if chat.direct:
+                title = next((member['name'] for member in members if member['id'] != uid), title)
             return {
-                'id': cid, 'direct': direct, 'channel': chat['channel'], 'saved': direct and chat['direct_key'].startswith('saved:'), 'title': next(
-                    (member['name'] for member in members if member['id'] != uid), chat['title']
-                ) if direct else chat['title'],
+                'id': cid, 'direct': chat.direct, 'channel': chat.channel, 'saved': chat.saved, 'title': title,
                 'members': members, 'permissions': {p: role.allows(p) for p in PERMISSIONS},
-                'defaults': PERMISSIONS | chat['permissions'], 'role': chat['role'],
+                'defaults': PERMISSIONS | dict(chat.defaults.values), 'role': role.role.value,
                 'messages': list(reversed(messages[:50])), 'more': len(messages)>50, 'pinned': pinned,
             }
