@@ -4,7 +4,7 @@ from uuid import uuid4
 
 from messenger.application.ports import Passwords, UnitOfWork
 from messenger.domain.accounts import Account, DisplayName, Username
-from messenger.domain.common.value_objects.identity import UserId
+from messenger.domain.common.value_objects import UserId
 from messenger.domain.common import ApplicationError, clean
 
 def token_digest(token):

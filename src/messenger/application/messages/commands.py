@@ -6,7 +6,7 @@ from messenger.application.composition.message_content import copy_content, prep
 from messenger.application.events import publish_events
 from messenger.application.ports import UnitOfWork
 from messenger.domain.common import ApplicationError
-from messenger.domain.common.value_objects.identity import ChatId, MessageId, UserId
+from messenger.domain.common.value_objects import ChatId, MessageId, UserId
 from messenger.domain.messages import Message, Reaction
 from messenger.domain.messages.exceptions import RequestIdConflict
 

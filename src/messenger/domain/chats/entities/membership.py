@@ -1,5 +1,5 @@
 from messenger.domain.common.entities import Entity
-from messenger.domain.common.value_objects.identity import ChatId, UserId
+from messenger.domain.common.value_objects import ChatId, UserId
 
 from ..exceptions import DefaultPermissionsOwnerRequired, InvalidMemberTarget, OwnerCannotLeave, OwnerRequired, PermissionDenied
 from ..value_objects import PERMISSIONS, Permissions, Role

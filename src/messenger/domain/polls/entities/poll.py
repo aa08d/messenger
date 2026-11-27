@@ -1,5 +1,5 @@
 from messenger.domain.common.entities import AggregateRoot
-from messenger.domain.common.value_objects.identity import MessageId, UserId
+from messenger.domain.common.value_objects import MessageId, UserId
 
 from ..events import PollBallotChanged, PollClosed
 from ..exceptions import InvalidBallot, PollAuthorRequired, PollUnavailable

@@ -1,9 +1,10 @@
 import json
 
 from messenger.application.messages.queries import VISIBLE
-from messenger.domain.common.value_objects.identity import ChatId, MessageId, UserId
+from messenger.domain.common.value_objects import ChatId, MessageId, UserId
 from messenger.domain.messages import AttachmentRef, ForwardOrigin, Message, MessageText, MessageTimestamps, PollRef
 from messenger.domain.messages.exceptions import MessageUnavailable
+from messenger.domain.messages.value_objects import AttachmentMetadata
 
 
 def decode_message(message_id, row):
@@ -13,7 +14,8 @@ def decode_message(message_id, row):
     elif kind == 'poll':
         content = PollRef(message_id)
     else:
-        content = AttachmentRef(message_id, kind, body.get('text', ''))
+        metadata = AttachmentMetadata(body['name'], body['bytes'], body.get('duration'))
+        content = AttachmentRef(message_id, kind, metadata, body.get('text', ''))
     origin = None
     if row['forwarded_from_chat'] is not None:
         origin = ForwardOrigin(
@@ -39,7 +41,11 @@ def encode_content(message, details):
     elif isinstance(content, PollRef):
         kind, body = 'poll', dict(details)
     else:
-        kind, body = content.kind, dict(details, text=content.caption)
+        metadata = content.metadata
+        kind, body = content.kind.value, {
+            'text': content.caption, 'name': metadata.name,
+            'bytes': metadata.size, 'duration': metadata.duration,
+        }
     if message.forwarded:
         body['forwarded'] = True
     return kind, json.dumps(body)

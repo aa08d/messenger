@@ -1,8 +1,9 @@
 from dataclasses import dataclass
 
 from messenger.domain.common import ApplicationError
-from messenger.domain.common.value_objects.identity import MessageId
-from messenger.domain.media import MEDIA, Attachment, MediaKind
+from messenger.domain.common.value_objects import MessageId
+from messenger.application.messages.attachments.dto import Attachment
+from messenger.domain.messages.value_objects import MEDIA, AttachmentMetadata, MediaKind
 from messenger.domain.messages import AttachmentRef, MessageText, PollRef
 from messenger.domain.messages.value_objects import MessageContent
 from messenger.domain.polls import PollDefinition
@@ -30,10 +31,12 @@ def prepare_content(message_id: MessageId, member, kind, body, attachment) -> Pr
     if kind in MEDIA and attachment:
         member.require('send_media')
         upload = Attachment(*attachment)
-        metadata = upload.describe(MediaKind(kind), body.get('duration'))
+        media_kind = MediaKind(kind)
+        media_kind.validate_mime(upload.mime)
+        metadata = AttachmentMetadata(upload.name, len(upload.data), body.get('duration'))
         return PreparedContent(
-            AttachmentRef(message_id, kind, body.get('text', '')),
-            {'name': metadata.name, 'bytes': metadata.size, 'duration': metadata.duration},
+            AttachmentRef(message_id, media_kind, metadata, body.get('text', '')),
+            {},
             upload,
         )
     raise ApplicationError(422, 'Неизвестный тип сообщения')
@@ -43,8 +46,8 @@ async def copy_content(tx, original, target: MessageId) -> PreparedContent:
     content = original.content_for_copy(target)
     if isinstance(content, MessageText):
         return PreparedContent(content, {})
-    details = await tx.messages.content_details(original.id)
     if isinstance(content, PollRef):
+        details = await tx.messages.content_details(original.id)
         details['closed'] = False
         return PreparedContent(content, details)
-    return PreparedContent(content, details, await tx.attachments.get(original.id))
+    return PreparedContent(content, {}, await tx.attachments.get(original.id))

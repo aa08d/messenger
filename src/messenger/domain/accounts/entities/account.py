@@ -1,5 +1,5 @@
 from messenger.domain.common.entities import Entity
-from messenger.domain.common.value_objects.identity import UserId
+from messenger.domain.common.value_objects import UserId
 
 from ..value_objects import DisplayName, Username
 

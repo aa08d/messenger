@@ -4,9 +4,10 @@ from uuid import uuid4
 
 from messenger.domain.chats import Membership, Permissions, Role
 from messenger.domain.common.entities import AggregateRoot
-from messenger.domain.common.value_objects.identity import ChatId, MessageId, UserId
+from messenger.domain.common.value_objects import ChatId, MessageId, UserId
 from messenger.domain.messages import AttachmentRef, Message, MessageText
 from messenger.domain.messages.events import MessageEdited, MessageHidden, MessageSent
+from messenger.domain.messages.value_objects import AttachmentMetadata
 from messenger.domain.messages.exceptions import InvalidContentReference, MessageAuthorRequired
 from messenger.domain.polls import Ballot, Poll, PollDefinition
 from messenger.domain.polls.events import PollBallotChanged, PollClosed
@@ -49,7 +50,7 @@ class DomainEventsTest(TestCase):
         self.assertEqual(hidden.only_recipient, self.author.value)
 
     def test_attachment_copy_rebinds_reference_and_keeps_origin(self):
-        message = Message(self.id, self.author, AttachmentRef(self.id, 'photo'))
+        message = Message(self.id, self.author, AttachmentRef(self.id, 'photo', AttachmentMetadata('image.png', 42, None)))
         target = MessageId(ChatId(uuid4()), 2)
         with self.assertRaises(InvalidContentReference):
             Message(target, self.author, message.content)

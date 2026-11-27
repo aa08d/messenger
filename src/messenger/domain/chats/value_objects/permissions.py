@@ -1,5 +1,4 @@
 from dataclasses import dataclass
-from enum import StrEnum
 
 from messenger.domain.common.value_objects.value_object import ValueObject
 from messenger.domain.chats.exceptions import InvalidPermissions
@@ -10,19 +9,26 @@ PERMISSIONS = {
 }
 
 
-class Role(StrEnum):
-    OWNER = 'owner'
-    ADMIN = 'admin'
-    MEMBER = 'member'
-
-
 @dataclass(frozen=True, slots=True)
 class Permissions(ValueObject):
     values: frozenset[tuple[str, bool]]
 
+    def __post_init__(self) -> None:
+        if not isinstance(self.values, frozenset):
+            raise InvalidPermissions()
+        keys = set()
+        for item in self.values:
+            if not isinstance(item, tuple) or len(item) != 2:
+                raise InvalidPermissions()
+            key, flag = item
+            if not isinstance(key, str) or key not in PERMISSIONS or key in keys or type(flag) is not bool:
+                raise InvalidPermissions()
+            keys.add(key)
+
     @classmethod
     def from_mapping(cls, value: dict) -> 'Permissions':
-        if any(key not in PERMISSIONS or type(flag) is not bool for key, flag in value.items()):
+        if any(not isinstance(key, str) or key not in PERMISSIONS or type(flag) is not bool
+               for key, flag in value.items()):
             raise InvalidPermissions()
         return cls(frozenset(value.items()))
 

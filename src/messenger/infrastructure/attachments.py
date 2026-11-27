@@ -1,5 +1,5 @@
-from messenger.domain.media.exceptions import AttachmentUnavailable
-from messenger.domain.media import Attachment
+from messenger.domain.messages.exceptions import AttachmentUnavailable
+from messenger.application.messages.attachments.dto import Attachment
 
 
 class PostgresAttachments:

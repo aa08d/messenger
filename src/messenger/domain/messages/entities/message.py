@@ -2,7 +2,7 @@ from dataclasses import replace
 from typing import Protocol, Self
 
 from messenger.domain.common.entities import AggregateRoot
-from messenger.domain.common.value_objects.identity import MessageId, UserId
+from messenger.domain.common.value_objects import MessageId, UserId
 
 from ..events import MessageDeleted, MessageEdited, MessageHidden, MessagePinChanged, MessageReactionChanged, MessageSent
 from ..exceptions import InvalidContentReference, InvalidReply, MessageAuthorRequired, MessageEditForbidden

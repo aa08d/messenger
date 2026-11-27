@@ -7,7 +7,7 @@ from messenger.application.chats.access import access
 from messenger.application.events import publish_events
 from messenger.application.ports import UnitOfWork
 from messenger.domain.chats import ChatTitle, Role, permission_map
-from messenger.domain.common.value_objects.identity import UserId
+from messenger.domain.common.value_objects import UserId
 from messenger.domain.common import ApplicationError
 
 

@@ -10,6 +10,8 @@ class Username(ValueObject):
     value: str
 
     def __post_init__(self):
+        if not isinstance(self.value, str):
+            raise InvalidUsername()
         value = self.value.strip().lower()
         if not re.fullmatch(r'[a-z0-9_]{3,32}', value):
             raise InvalidUsername()

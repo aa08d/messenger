@@ -1,1 +1,1 @@
-from .base import ApplicationError, DomainError, InvalidMessageSequence, InvalidTextLength
+from .base import ApplicationError, DomainError, InvalidIdentifier, InvalidMessageSequence, InvalidTextLength

@@ -12,7 +12,7 @@ from fastapi.staticfiles import StaticFiles
 from messenger.application.accounts.service import Accounts
 from messenger.application.chats.commands import Chats
 from messenger.application.chats.queries import ChatQueries
-from messenger.application.media.queries import Media
+from messenger.application.messages.attachments.queries import AttachmentQueries
 from messenger.application.messages.commands import Messages
 from messenger.application.polls.commands import Polls
 from messenger.application.ports import Passwords, UnitOfWork
@@ -36,7 +36,7 @@ class Services(Provider):
     chats = provide(Chats, scope=Scope.APP)
     chat_queries = provide(ChatQueries, scope=Scope.APP)
     messages = provide(Messages, scope=Scope.APP)
-    media = provide(Media, scope=Scope.APP)
+    media = provide(AttachmentQueries, scope=Scope.APP)
     polls = provide(Polls, scope=Scope.APP)
 
 container = make_async_container(Services())

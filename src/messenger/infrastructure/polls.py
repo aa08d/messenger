@@ -1,5 +1,5 @@
 from messenger.application.messages.queries import VISIBLE
-from messenger.domain.common.value_objects.identity import UserId
+from messenger.domain.common.value_objects import UserId
 from messenger.domain.messages.exceptions import MessageUnavailable
 from messenger.domain.polls import Poll, PollDefinition
 

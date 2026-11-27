@@ -1,7 +1,7 @@
 from typing import Protocol
 
-from messenger.domain.common.value_objects.identity import MessageId
-from messenger.domain.media import Attachment
+from messenger.domain.common.value_objects import MessageId
+from messenger.application.messages.attachments.dto import Attachment
 
 
 class AttachmentRepository(Protocol):

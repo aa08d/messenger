@@ -13,11 +13,11 @@ from pydantic import BaseModel, Field
 from messenger.application.accounts.service import Accounts
 from messenger.application.chats.commands import Chats
 from messenger.application.chats.queries import ChatQueries
-from messenger.application.media.queries import Media
+from messenger.application.messages.attachments.queries import AttachmentQueries
 from messenger.application.messages.commands import Messages
 from messenger.application.polls.commands import Polls
 from messenger.domain.common import ApplicationError
-from messenger.domain.media import MEDIA
+from messenger.domain.messages.value_objects import MAX_ATTACHMENT_BYTES, MEDIA
 from messenger.infrastructure.events import Updates
 
 router = APIRouter(prefix='/api', route_class=DishkaRoute)
@@ -149,7 +149,7 @@ async def upload(cid: UUID, req: Request, accounts: FromDishka[Accounts], messag
     user = await uid(req, accounts)
     if kind not in MEDIA:
         raise ApplicationError(422, 'Неизвестный тип файла')
-    limit = 25 * 1024 * 1024
+    limit = MAX_ATTACHMENT_BYTES
     data = await file.read(limit + 1)
     if not data or len(data) > limit:
         raise ApplicationError(413, 'Максимальный размер вложения 25 МБ')
@@ -161,7 +161,7 @@ async def upload(cid: UUID, req: Request, accounts: FromDishka[Accounts], messag
                             reply, (name, mime, data))
 
 @router.get('/chats/{cid}/media/{seq}')
-async def download(cid: UUID, seq: int, req: Request, accounts: FromDishka[Accounts], media_queries: FromDishka[Media]):
+async def download(cid: UUID, seq: int, req: Request, accounts: FromDishka[Accounts], media_queries: FromDishka[AttachmentQueries]):
     media = await media_queries.attachment(await uid(req, accounts), cid, seq)
     data = media['data']
     mime = media['mime']

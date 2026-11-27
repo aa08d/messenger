@@ -1,6 +1,6 @@
 from typing import Protocol
 
-from messenger.domain.common.value_objects.identity import MessageId, UserId
+from messenger.domain.common.value_objects import MessageId, UserId
 from messenger.domain.polls import Ballot, Poll
 
 

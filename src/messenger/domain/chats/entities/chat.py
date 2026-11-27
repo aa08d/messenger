@@ -1,5 +1,5 @@
 from messenger.domain.common.entities import AggregateRoot
-from messenger.domain.common.value_objects.identity import ChatId, MessageId, UserId
+from messenger.domain.common.value_objects import ChatId, MessageId, UserId
 
 from ..events import ChatHistoryCleared, ChatMembershipChanged, ChatOpened, ChatRead, ChatSettingsChanged
 from ..exceptions import HistoryRevocationForbidden

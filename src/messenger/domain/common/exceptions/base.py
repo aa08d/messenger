@@ -19,3 +19,8 @@ class InvalidTextLength(DomainError):
 class InvalidMessageSequence(DomainError):
     status = 404
     detail = 'Сообщение недоступно'
+
+
+class InvalidIdentifier(DomainError):
+    def __init__(self, name: str):
+        super().__init__(f'Некорректный идентификатор: {name}')

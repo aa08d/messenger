@@ -12,6 +12,8 @@ class PollDefinition(ValueObject):
     multiple: bool
 
     def __post_init__(self):
+        if not isinstance(self.options, (tuple, list)) or type(self.multiple) is not bool:
+            raise InvalidPollOptions()
         options = tuple(clean(option, 100) for option in self.options)
         if not 2 <= len(options) <= 10 or len(set(options)) != len(options):
             raise InvalidPollOptions()
