@@ -1,0 +1,70 @@
+x-app: &app
+  image: contour-messenger:local
+  build: .
+  environment:
+    DATABASE_URL: postgresql+asyncpg://chat:${POSTGRES_PASSWORD:-chat}@db:5432/chat
+    AMQP_URL: amqp://chat:${RABBITMQ_PASSWORD:-chat}@rabbit:5672/
+    SECURE_COOKIES: ${SECURE_COOKIES:-0}
+    PUBLIC_ORIGIN: ${PUBLIC_ORIGIN:-}
+services:
+  db:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: chat
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-chat}
+      POSTGRES_DB: chat
+    volumes:
+      - postgres:/var/lib/postgresql/data
+    healthcheck:
+      test: [CMD-SHELL, "pg_isready -U chat"]
+      interval: 2s
+      timeout: 3s
+      retries: 30
+  rabbit:
+    image: rabbitmq:4-alpine
+    environment:
+      RABBITMQ_DEFAULT_USER: chat
+      RABBITMQ_DEFAULT_PASS: ${RABBITMQ_PASSWORD:-chat}
+    volumes:
+      - rabbit:/var/lib/rabbitmq
+    healthcheck:
+      test: [CMD, rabbitmq-diagnostics, -q, ping]
+      interval: 3s
+      timeout: 6s
+      retries: 30
+  migrate:
+    <<: *app
+    command: [alembic, upgrade, head]
+    depends_on:
+      db:
+        condition: service_healthy
+  api:
+    <<: *app
+    command: [uvicorn, messenger.bootstrap.api:app, --host, "0.0.0.0", --port, "8000"]
+    ports:
+      - "127.0.0.1:${PORT:-8000}:8000"
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+    restart: unless-stopped
+  relay:
+    <<: *app
+    command: [python, -m, messenger.bootstrap.relay]
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+      rabbit:
+        condition: service_healthy
+    restart: unless-stopped
+  consumer:
+    <<: *app
+    command: [python, -m, messenger.bootstrap.consumer]
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+      rabbit:
+        condition: service_healthy
+    restart: unless-stopped
+volumes:
+  postgres:
+  rabbit:

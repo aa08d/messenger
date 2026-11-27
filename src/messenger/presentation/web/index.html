@@ -1,0 +1,37 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Контур — мессенджер</title>
+<link rel="stylesheet" href="/style.css"><script type="module" src="/app.js"></script>
+</head>
+<body>
+<div id="login" class="login">
+  <div class="login-art"><div class="brand"><span class="logo">◈</span> Контур</div><div class="rings"></div><div class="login-copy"><h1>Всегда<br>на связи.</h1><p>Личные разговоры и групповые чаты в одном месте.</p></div></div>
+  <div class="login-form"><form id="auth"><h2 id="auth-title">Вход в Контур</h2><label id="name-label" hidden>Имя<input name="name" maxlength="60" autocomplete="name"></label><label>Логин<input name="username" required autocomplete="username" placeholder="Ваш логин"></label><label>Пароль<input name="password" required minlength="10" maxlength="128" type="password" autocomplete="current-password" placeholder="Не менее 10 символов"></label><button class="primary" id="auth-submit">Войти</button><button type="button" id="auth-switch" class="plain">Создать аккаунт</button></form></div>
+</div>
+<main id="app" hidden>
+  <aside class="sidebar"><div class="sidebar-top"><div class="brand"><span class="logo">◈</span> Контур</div><button class="icon primary" id="new-chat" title="Новый чат" aria-label="Новый чат">＋</button></div>
+  <div class="search"><span>⌕</span><input id="filter" type="search" placeholder="Поиск по чатам" aria-label="Поиск по чатам"></div>
+  <nav class="tabs" aria-label="Тип чата"><button data-tab="all" class="active">Все</button><button data-tab="direct">Личные</button><button data-tab="group">Группы</button><button data-tab="channel">Каналы</button></nav>
+  <div id="chat-list" class="chat-list"></div>
+  <footer class="profile"><span class="avatar" id="profile-avatar"></span><div><strong id="profile-name"></strong><small id="profile-handle"></small></div><button class="icon" id="logout" title="Выйти" aria-label="Выйти">⏻</button></footer></aside>
+  <section class="conversation">
+    <div id="welcome" class="welcome"><span class="welcome-icon">◈</span><h2>Ваши разговоры здесь</h2><p>Откройте чат или начните новый разговор.</p><button class="primary" id="welcome-create">Новый чат</button></div>
+    <div id="thread" hidden>
+      <header class="thread-header"><button class="icon back" id="back" aria-label="К списку чатов">‹</button><span id="thread-avatar" class="avatar"></span><div class="thread-title"><strong id="title"></strong><small id="subtitle"></small></div><button class="icon" id="message-search" title="Поиск сообщений" aria-label="Поиск сообщений">⌕</button><button class="icon" id="chat-settings" title="Настройки чата" aria-label="Настройки чата">⋯</button></header>
+      <form id="find" hidden><input id="query" type="search" placeholder="Поиск в переписке" aria-label="Поиск в переписке"><button class="secondary">Найти</button><button type="button" id="close-search" class="icon" aria-label="Закрыть поиск">×</button></form>
+      <div id="pinned" hidden></div>
+      <div id="history" aria-label="История сообщений"><button id="older" class="secondary" hidden>Загрузить ранее</button><div id="messages"></div></div>
+      <div class="composer">
+        <div id="context" hidden><span id="context-text"></span><button type="button" class="icon" id="cancel-context" aria-label="Отменить">×</button></div>
+        <div id="recording" hidden><span id="record-status"></span><video id="record-camera" muted autoplay playsinline hidden></video><button class="secondary" id="stop-record">Готово</button><button class="plain" id="cancel-record">Отменить</button></div>
+        <div id="preview" hidden><div id="preview-media"></div><button class="primary" id="send-media">Отправить</button><button class="plain" id="cancel-media">Отменить</button></div>
+        <form id="compose"><button class="icon" type="button" id="attach" title="Вложение" aria-label="Вложение">⎙</button><input type="file" id="file" hidden><textarea id="draft" rows="1" maxlength="4000" aria-label="Сообщение" placeholder="Написать сообщение…"></textarea><button class="icon" type="button" id="poll" title="Опрос" aria-label="Опрос">▥</button><button class="icon" type="button" id="voice" title="Записать голосовое" aria-label="Записать голосовое">♩</button><button class="icon" type="button" id="circle" title="Записать видеокружок" aria-label="Записать видеокружок">◉</button><button class="icon primary send" id="send" title="Отправить" aria-label="Отправить">↑</button></form>
+      </div>
+    </div>
+  </section>
+</main>
+<dialog id="modal"><div class="dialog-head"><h2 id="dialog-title"></h2><button class="icon" id="close-dialog" title="Закрыть" aria-label="Закрыть">×</button></div><div id="dialog-content"></div></dialog>
+<div id="toast" role="status" hidden></div>
+</body></html>
