@@ -12,6 +12,7 @@ from messenger.domain.messages.exceptions import InvalidContentReference, Messag
 from messenger.domain.polls import Ballot, Poll, PollDefinition
 from messenger.domain.polls.events import PollBallotChanged, PollClosed
 from messenger.domain.polls.exceptions import BallotNotAllowed, PollUnavailable
+from messenger.domain.services import AccessService
 
 
 class DomainEventsTest(TestCase):
@@ -37,11 +38,14 @@ class DomainEventsTest(TestCase):
 
     def test_failed_edit_does_not_publish_and_hide_is_personal(self):
         message = Message(self.id, self.author, MessageText('hello'))
+        other = Membership(self.chat, UserId(uuid4()), self.member.role, self.member.overrides, self.member.defaults)
+        access = AccessService()
         with self.assertRaises(MessageAuthorRequired):
-            message.edit(UserId(uuid4()), 'changed', self.member)
+            access.require_message_edit(other, message)
         self.assertEqual(message.pull_events(), [])
 
-        message.edit(self.author, 'changed', self.member)
+        access.require_message_edit(self.member, message)
+        message.edit('changed')
         self.assertGreaterEqual(message.timestamps.edited_at, message.timestamps.created_at)
         message.hide(self.author)
         edited, hidden = message.pull_events()
@@ -67,7 +71,7 @@ class DomainEventsTest(TestCase):
             poll.change_ballot(Ballot((0, 1)))
         self.assertEqual(poll.pull_events(), [])
         poll.change_ballot(Ballot((0,)))
-        poll.close(self.author)
+        poll.close()
         with self.assertRaises(PollUnavailable):
             poll.change_ballot(Ballot(()))
         ballot, closed = poll.pull_events()

@@ -7,6 +7,7 @@ from messenger.domain.messages.value_objects import MEDIA, AttachmentMetadata, M
 from messenger.domain.messages import AttachmentRef, MessageText, PollRef
 from messenger.domain.messages.value_objects import MessageContent
 from messenger.domain.polls import PollDefinition
+from messenger.domain.services import AccessService
 
 
 @dataclass(frozen=True)
@@ -16,12 +17,13 @@ class PreparedContent:
     attachment: Attachment | None = None
 
 
-def prepare_content(message_id: MessageId, member, kind, body, attachment) -> PreparedContent:
+def prepare_content(message_id: MessageId, member, kind, body, attachment,
+                    *, access_service: AccessService) -> PreparedContent:
     if kind == 'text':
-        member.require('send_text')
+        access_service.require(member, 'send_text')
         return PreparedContent(MessageText(body.get('text', '')), {})
     if kind == 'poll':
-        member.require('send_poll')
+        access_service.require(member, 'send_poll')
         definition = PollDefinition(body.get('question', ''), tuple(body.get('options', [])),
                                     bool(body.get('multiple')))
         return PreparedContent(PollRef(message_id), {
@@ -29,7 +31,7 @@ def prepare_content(message_id: MessageId, member, kind, body, attachment) -> Pr
             'multiple': definition.multiple, 'closed': False,
         })
     if kind in MEDIA and attachment:
-        member.require('send_media')
+        access_service.require(member, 'send_media')
         upload = Attachment(*attachment)
         media_kind = MediaKind(kind)
         media_kind.validate_mime(upload.mime)

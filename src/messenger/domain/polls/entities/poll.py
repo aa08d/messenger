@@ -2,7 +2,7 @@ from messenger.domain.common.entities import AggregateRoot
 from messenger.domain.common.value_objects import MessageId, UserId
 
 from ..events import PollBallotChanged, PollClosed
-from ..exceptions import BallotNotAllowed, PollAuthorRequired, PollUnavailable
+from ..exceptions import BallotNotAllowed, PollUnavailable
 from ..value_objects import Ballot, PollDefinition
 
 
@@ -23,8 +23,6 @@ class Poll(AggregateRoot):
             raise BallotNotAllowed()
         self.record_event(PollBallotChanged(chat_id=self.id.chat_id.value, seq=self.id.seq))
 
-    def close(self, actor: UserId) -> None:
-        if actor != self.author:
-            raise PollAuthorRequired()
+    def close(self) -> None:
         self.closed = True
         self.record_event(PollClosed(chat_id=self.id.chat_id.value, seq=self.id.seq))

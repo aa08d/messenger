@@ -2,9 +2,7 @@ from messenger.domain.common.entities import AggregateRoot
 from messenger.domain.common.value_objects import ChatId, MessageId, UserId
 
 from ..events import ChatHistoryCleared, ChatMembershipChanged, ChatOpened, ChatRead, ChatSettingsChanged
-from ..exceptions import HistoryRevocationForbidden
-from ..value_objects import ChatTitle, Permissions, Role
-from .membership import Membership
+from ..value_objects import ChatTitle, Permissions
 
 
 class Chat(AggregateRoot):
@@ -27,9 +25,7 @@ class Chat(AggregateRoot):
     def mark_read(self, through: int) -> None:
         self.record_event(ChatRead(chat_id=self.id.value, through=through))
 
-    def clear_history(self, actor: UserId, member: Membership, *, for_everyone: bool) -> None:
-        if for_everyone and not self.direct and member.role != Role.OWNER:
-            raise HistoryRevocationForbidden()
+    def clear_history(self, actor: UserId, *, for_everyone: bool) -> None:
         self.record_event(ChatHistoryCleared(
             chat_id=self.id.value, through=self.head, for_everyone=for_everyone,
             only_recipient=None if for_everyone else actor.value,

@@ -5,6 +5,7 @@ from messenger.application.chats.access import access
 from messenger.application.composition.message_content import copy_content, prepare_content
 from messenger.application.events import publish_events
 from messenger.application.ports import UnitOfWork
+from messenger.domain.services import AccessService
 from messenger.domain.common import ApplicationError
 from messenger.domain.common.value_objects import ChatId, MessageId, UserId
 from messenger.domain.messages import Message, Reaction
@@ -31,8 +32,9 @@ async def prior_message(repository, cid, uid, request, digest):
 
 
 class Messages:
-    def __init__(self, db: UnitOfWork):
+    def __init__(self, db: UnitOfWork, access_service: AccessService):
         self.db = db
+        self.access_service = access_service
 
     async def send(self, uid, cid, request, kind, body, reply, attachment=None):
         async with self.db.transaction() as tx:
@@ -44,7 +46,7 @@ class Messages:
                 return existing
 
             message_id = chat.next_message_id()
-            prepared = prepare_content(message_id, member, kind, body, attachment)
+            prepared = prepare_content(message_id, member, kind, body, attachment, access_service=self.access_service)
             reply_to = MessageId(chat_id, reply) if reply is not None else None
             if reply_to:
                 await tx.messages.visible(reply_to, actor)
@@ -72,7 +74,7 @@ class Messages:
                 return existing
 
             original = await tx.messages.visible(MessageId(ChatId(source), seq), actor)
-            Message.publish(original.content, member)
+            self.access_service.require_publish(member, original.content)
             target_id = target.next_message_id()
             prepared = await copy_content(tx, original, target_id)
             message = Message.create(target_id, actor, prepared.content, forward_origin=original.origin_for_copy())
@@ -89,13 +91,16 @@ class Messages:
                 message.hide(actor)
                 await tx.messages.hide(message_id, actor)
             elif action == 'delete':
-                message.delete(actor, member, direct=direct)
+                self.access_service.require_message_delete(member, message, direct=direct)
+                message.delete()
                 await tx.messages.delete(message_id)
             elif action == 'pin':
-                message.pin(data.flag, member, direct=direct)
+                self.access_service.require_message_pin(member, direct=direct)
+                message.pin(data.flag)
                 await tx.messages.update_pin(message)
             elif action == 'edit':
-                message.edit(actor, data.text, member)
+                self.access_service.require_message_edit(member, message)
+                message.edit(data.text)
                 await tx.messages.update_content(message)
             elif action == 'react':
                 await tx.messages.react(message_id, actor, Reaction(data.text) if data.text else None)

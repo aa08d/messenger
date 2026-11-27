@@ -1,12 +1,14 @@
 from messenger.application.chats.access import access
 from messenger.application.messages.queries import VISIBLE, history, pinned_messages
 from messenger.application.ports import UnitOfWork
+from messenger.domain.services import AccessService
 from messenger.domain.chats import PERMISSIONS
 
 
 class ChatQueries:
-    def __init__(self, db: UnitOfWork):
+    def __init__(self, db: UnitOfWork, access_service: AccessService):
         self.db = db
+        self.access_service = access_service
 
     async def list(self, uid):
         async with self.db.transaction() as tx:
@@ -42,7 +44,7 @@ class ChatQueries:
                 title = next((member['name'] for member in members if member['id'] != uid), title)
             return {
                 'id': cid, 'direct': chat.direct, 'channel': chat.channel, 'saved': chat.saved, 'title': title,
-                'members': members, 'permissions': {p: role.allows(p) for p in PERMISSIONS},
+                'members': members, 'permissions': self.access_service.effective_permissions(role),
                 'defaults': PERMISSIONS | dict(chat.defaults.values), 'role': role.role.value,
                 'messages': list(reversed(messages[:50])), 'more': len(messages)>50, 'pinned': pinned,
             }

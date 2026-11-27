@@ -17,6 +17,7 @@ from messenger.application.messages.commands import Messages
 from messenger.application.polls.commands import Polls
 from messenger.application.ports import Passwords, UnitOfWork
 from messenger.domain.common import ApplicationError
+from messenger.domain.services import AccessService
 from messenger.infrastructure.database import Postgres
 from messenger.infrastructure.events import Updates
 from messenger.infrastructure.passwords import ArgonPasswords
@@ -33,6 +34,7 @@ class Services(Provider):
 
     passwords = provide(ArgonPasswords, provides=Passwords, scope=Scope.APP)
     accounts = provide(Accounts, scope=Scope.APP)
+    access_service = provide(AccessService, scope=Scope.APP)
     chats = provide(Chats, scope=Scope.APP)
     chat_queries = provide(ChatQueries, scope=Scope.APP)
     messages = provide(Messages, scope=Scope.APP)

@@ -6,14 +6,16 @@ from uuid import uuid4
 from messenger.application.chats.access import access
 from messenger.application.events import publish_events
 from messenger.application.ports import UnitOfWork
+from messenger.domain.services import AccessService
 from messenger.domain.chats import ChatTitle, Role, permission_map
 from messenger.domain.common.value_objects import UserId
 from messenger.domain.common import ApplicationError
 
 
 class Chats:
-    def __init__(self, db: UnitOfWork):
+    def __init__(self, db: UnitOfWork, access_service: AccessService):
         self.db = db
+        self.access_service = access_service
 
     async def create(self, uid, title, people, saved=False, channel=False):
         people = set(people) - {uid}
@@ -64,11 +66,12 @@ class Chats:
                     return
                 chat.mark_read(updated['seen'])
             elif action == 'clear':
-                chat.clear_history(UserId(uid), role, for_everyone=False)
+                chat.clear_history(UserId(uid), for_everyone=False)
                 await tx.execute('''UPDATE members SET hidden=:head,seen=GREATEST(seen,:head),archived=true
                     WHERE chat_id=:cid AND user_id=:uid''', **keys)
             elif action == 'revoke':
-                chat.clear_history(UserId(uid), role, for_everyone=True)
+                self.access_service.require_history_revocation(role, direct=chat.direct)
+                chat.clear_history(UserId(uid), for_everyone=True)
                 await tx.execute('UPDATE chats SET cleared=:head WHERE id=:cid', **keys)
                 await tx.execute('UPDATE members SET archived=true,seen=GREATEST(seen,:head) WHERE chat_id=:cid', **keys)
                 for table in ('attachments','votes','reactions'):
@@ -94,10 +97,9 @@ class Chats:
             chat, role = await access(tx, uid, cid, True)
             if chat.direct:
                 raise ApplicationError(422, 'Ссылки доступны в группах и каналах')
-            role.require('invite')
+            self.access_service.require(role, 'invite')
             if disable:
-                if role.role != 'owner':
-                    raise ApplicationError(403, 'Только владелец может отключить все ссылки')
+                self.access_service.require_invite_revocation(role)
                 await tx.execute('UPDATE invites SET revoked=true WHERE chat_id=:cid AND NOT revoked', cid=cid)
                 return {'ok': True}
             token = secrets.token_urlsafe(24)
@@ -133,26 +135,27 @@ class Chats:
         target = data.user_id
         args = dict(keys, target=target)
         if action == 'invite':
-            role.require('invite')
+            self.access_service.require(role, 'invite')
             if target is None or not await tx.one('SELECT id FROM users WHERE id=:target', **args):
                 raise ApplicationError(404, 'Пользователь не найден')
             await tx.execute('''INSERT INTO members(chat_id,user_id,role,seen)
                 VALUES (:cid,:target,'member',:head) ON CONFLICT DO NOTHING''', **args)
         elif action == 'leave':
-            role.authorize_departure()
+            self.access_service.require_departure(role)
             await tx.execute('DELETE FROM members WHERE chat_id=:cid AND user_id=:uid', **args)
         elif action in {'rename','defaults'}:
-            role.require('manage')
+            self.access_service.require(role, 'manage')
             if action == 'rename':
                 await tx.execute('UPDATE chats SET title=:title WHERE id=:cid', title=ChatTitle(data.text).value, **args)
             else:
-                role.authorize_default_permissions()
+                self.access_service.require_default_permissions_change(role)
                 await tx.execute('UPDATE chats SET permissions=CAST(:p AS jsonb) WHERE id=:cid',
                                  p=json.dumps(permission_map(data.permissions)), **args)
         elif action in {'remove','member','transfer'}:
-            role.require('manage')
+            self.access_service.require(role, 'manage')
             current = await tx.one('SELECT role FROM members WHERE chat_id=:cid AND user_id=:target', **args)
-            role.authorize_member_change(
+            self.access_service.require_member_change(
+                role,
                 UserId(target) if target else None,
                 Role(current['role']) if current else None,
                 removing=action == 'remove',

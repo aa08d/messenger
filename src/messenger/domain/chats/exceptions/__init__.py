@@ -5,5 +5,6 @@ from .rules import (
     OwnerRequired,
     DefaultPermissionsOwnerRequired,
     HistoryRevocationForbidden,
+    InviteRevocationForbidden,
     ChatUnavailable,
 )

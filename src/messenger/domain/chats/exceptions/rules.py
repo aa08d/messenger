@@ -34,3 +34,8 @@ class HistoryRevocationForbidden(DomainError):
 class ChatUnavailable(DomainError):
     status = 404
     detail = 'Чат недоступен'
+
+
+class InviteRevocationForbidden(DomainError):
+    status = 403
+    detail = 'Только владелец может отключить все ссылки'

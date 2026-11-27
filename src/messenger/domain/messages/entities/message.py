@@ -1,16 +1,12 @@
 from dataclasses import replace
-from typing import Protocol, Self
+from typing import Self
 
 from messenger.domain.common.entities import AggregateRoot
 from messenger.domain.common.value_objects import MessageId, UserId
 
 from ..events import MessageDeleted, MessageEdited, MessageHidden, MessagePinChanged, MessageReactionChanged, MessageSent
-from ..exceptions import InvalidContentReference, InvalidReply, MessageAuthorRequired, MessageEditForbidden
+from ..exceptions import InvalidContentReference, InvalidReply, MessageEditForbidden
 from ..value_objects import AttachmentRef, ForwardOrigin, MessageContent, MessageText, MessageTimestamps, PollRef
-
-
-class PermissionCheck(Protocol):
-    def require(self, permission: str) -> None: ...
 
 
 class Message(AggregateRoot):
@@ -42,21 +38,9 @@ class Message(AggregateRoot):
         message.record_event(MessageSent(chat_id=id.chat_id.value, seq=id.seq))
         return message
 
-    @staticmethod
-    def publish(content: MessageContent, member: PermissionCheck) -> None:
-        if isinstance(content, MessageText):
-            member.require('send_text')
-        elif isinstance(content, PollRef):
-            member.require('send_poll')
-        else:
-            member.require('send_media')
-
-    def edit(self, actor: UserId, text: str, member: PermissionCheck) -> None:
-        if self.author != actor:
-            raise MessageAuthorRequired()
+    def edit(self, text: str) -> None:
         if isinstance(self.content, PollRef):
             raise MessageEditForbidden()
-        self.publish(self.content, member)
         if isinstance(self.content, MessageText):
             self.content = MessageText(text)
         else:
@@ -64,15 +48,11 @@ class Message(AggregateRoot):
         self.timestamps = self.timestamps.mark_edited()
         self.record_event(MessageEdited(chat_id=self.id.chat_id.value, seq=self.id.seq))
 
-    def pin(self, flag: bool, member: PermissionCheck, *, direct: bool) -> None:
-        if not direct:
-            member.require('pin')
+    def pin(self, flag: bool) -> None:
         self.pinned = flag
         self.record_event(MessagePinChanged(chat_id=self.id.chat_id.value, seq=self.id.seq, pinned=flag))
 
-    def delete(self, actor: UserId, member: PermissionCheck, *, direct: bool) -> None:
-        if self.author != actor and not direct:
-            member.require('delete_others')
+    def delete(self) -> None:
         self.pinned = False
         self.record_event(MessageDeleted(chat_id=self.id.chat_id.value, seq=self.id.seq))
 
